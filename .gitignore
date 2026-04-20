@@ -13,6 +13,13 @@ build/
 *.xcodeproj/
 !*.xcodeproj/project.pbxproj
 *.xcodeproj/xcshareddata/xcschemes/*.xcscheme
+!ZeroDevOps.xcodeproj/
+!ZeroDevOps.xcodeproj/project.pbxproj
+!ZeroDevOps.xcodeproj/project.xcworkspace/
+!ZeroDevOps.xcodeproj/project.xcworkspace/contents.xcworkspacedata
+!ZeroDevOps.xcodeproj/xcshareddata/
+!ZeroDevOps.xcodeproj/xcshareddata/xcschemes/
+!ZeroDevOps.xcodeproj/xcshareddata/xcschemes/ZeroDevOps.xcscheme
 
 # Swift Package Manager
 .build/
