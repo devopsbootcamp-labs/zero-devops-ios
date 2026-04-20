@@ -8,6 +8,9 @@ final class AuthSessionManager: ObservableObject {
 
     private let tokenStore = TokenStore.shared
     private let expirySkew: TimeInterval = 30
+    private let refreshSkew: TimeInterval = 60
+    private let refreshLock = NSLock()
+    private var inFlightRefresh: Task<TokenBundle, Error>?
 
     @Published private(set) var isAuthenticated = false
 
@@ -22,6 +25,59 @@ final class AuthSessionManager: ObservableObject {
 
     func currentBundle() -> TokenBundle? {
         tokenStore.load()
+    }
+
+    /// Returns a currently valid access token or refreshes it if possible.
+    func validAccessToken() async throws -> String {
+        if let token = currentAccessToken() {
+            return token
+        }
+        let refreshed = try await refreshAccessToken()
+        return refreshed.accessToken
+    }
+
+    /// Refresh token, deduplicating concurrent refreshes.
+    func refreshAccessToken() async throws -> TokenBundle {
+        let existingTask: Task<TokenBundle, Error>? = {
+            refreshLock.lock()
+            defer { refreshLock.unlock() }
+            return inFlightRefresh
+        }()
+        if let task = existingTask {
+            return try await task.value
+        }
+
+        guard let bundle = tokenStore.load(),
+              let refreshToken = bundle.refreshToken,
+              !refreshToken.isEmpty
+        else {
+            logout()
+            throw AuthError.notAuthenticated
+        }
+
+        let task = Task<TokenBundle, Error> {
+            let refreshed = try await OidcAuthManager.shared.refreshToken(refreshToken, currentBundle: bundle)
+            guard !refreshed.accessToken.isEmpty,
+                  refreshed.expiresAt > Date().addingTimeInterval(expirySkew)
+            else {
+                self.logout()
+                throw AuthError.invalidTokenResponse
+            }
+            self.saveBundle(refreshed)
+            return refreshed
+        }
+
+        refreshLock.lock()
+        inFlightRefresh = task
+        refreshLock.unlock()
+
+        defer {
+            refreshLock.lock()
+            inFlightRefresh = nil
+            refreshLock.unlock()
+        }
+
+        return try await task.value
     }
 
     // MARK: - Session Lifecycle
@@ -39,7 +95,12 @@ final class AuthSessionManager: ObservableObject {
 
     /// Validate and resume a stored session — mirrors AppContainer.resumeSessionIfAvailable().
     func resumeIfAvailable() -> Bool {
-        guard let token = currentAccessToken(), !token.isEmpty else {
+        guard let bundle = currentBundle(), !bundle.accessToken.isEmpty else {
+            logout()
+            return false
+        }
+        // If token is near expiry, caller can still refresh asynchronously before API usage.
+        if bundle.expiresAt <= Date().addingTimeInterval(refreshSkew), bundle.refreshToken == nil {
             logout()
             return false
         }

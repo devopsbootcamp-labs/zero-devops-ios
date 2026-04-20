@@ -83,13 +83,23 @@ final class APIClient {
     // MARK: - Core
 
     private func perform<B: Encodable, T: Decodable>(method: String, path: String, body: B?) async throws -> T {
-        let request = try buildRequest(method: method, path: path, body: body)
-        let (data, response) = try await urlSession.data(for: request)
-        try validate(response: response, data: data)
-        return try decodeAny(data)
+        let first = try buildRequest(method: method, path: path, body: body, useFreshToken: false)
+        let (data, response) = try await urlSession.data(for: first)
+
+        do {
+            try validate(response: response, data: data)
+            return try decodeAny(data)
+        } catch APIError.httpError(let statusCode, _) where statusCode == 401 {
+            // Mirror Android TokenRefreshAuthenticator behavior: refresh once and retry.
+            _ = try await sessionManager.refreshAccessToken()
+            let retry = try buildRequest(method: method, path: path, body: body, useFreshToken: true)
+            let (retryData, retryResponse) = try await urlSession.data(for: retry)
+            try validate(response: retryResponse, data: retryData)
+            return try decodeAny(retryData)
+        }
     }
 
-    private func buildRequest<B: Encodable>(method: String, path: String, body: B?) throws -> URLRequest {
+    private func buildRequest<B: Encodable>(method: String, path: String, body: B?, useFreshToken: Bool) throws -> URLRequest {
         guard let url = URL(string: path, relativeTo: baseURL) else {
             throw APIError.invalidResponse
         }
@@ -98,7 +108,8 @@ final class APIClient {
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.setValue("application/json", forHTTPHeaderField: "Accept")
 
-        if let token = sessionManager.currentAccessToken() {
+        let token = useFreshToken ? sessionManager.currentBundle()?.accessToken : sessionManager.currentAccessToken()
+        if let token {
             req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
         if let bundle = sessionManager.currentBundle() {

@@ -21,6 +21,17 @@ final class OidcAuthManager {
 
     private var currentFlow: OIDExternalUserAgentSession?
 
+    /// Resume the pending AppAuth browser flow with the callback URL.
+    @discardableResult
+    func resumeExternalUserAgentFlow(with url: URL) -> Bool {
+        guard let flow = currentFlow else { return false }
+        let resumed = flow.resumeExternalUserAgentFlow(with: url)
+        if resumed {
+            currentFlow = nil
+        }
+        return resumed
+    }
+
     private var serviceConfig: OIDServiceConfiguration {
         OIDServiceConfiguration(
             authorizationEndpoint: URL(string: "\(AppConfig.oidcIssuer)/protocol/openid-connect/auth")!,

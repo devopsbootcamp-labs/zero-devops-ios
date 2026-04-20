@@ -11,8 +11,8 @@ struct ZeroDevOpsApp: App {
             ContentView()
                 .environmentObject(container)
                 .onOpenURL { url in
-                    // AppAuth callback redirect
-                    OIDRedirectHTTPHandler.defaultHandler().handleOpen(url)
+                    // Resume the pending AppAuth browser flow on callback.
+                    _ = OidcAuthManager.shared.resumeExternalUserAgentFlow(with: url)
                 }
         }
     }
