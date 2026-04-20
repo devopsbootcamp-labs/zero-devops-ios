@@ -1,0 +1,36 @@
+# Xcode
+*.xcworkspace/xcuserdata/
+*.xcworkspace/xcshareddata/IDEWorkspaceChecks.plist
+*.xcworkspace/xcshareddata/swiftpm/configuration/
+*.xcuserdata/
+DerivedData/
+build/
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# XcodeGen generated (regenerate with `xcodegen generate`)
+*.xcodeproj/
+!*.xcodeproj/project.pbxproj
+*.xcodeproj/xcshareddata/xcschemes/*.xcscheme
+
+# Swift Package Manager
+.build/
+.swiftpm/
+*.resolved
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+
+# Environment
+.env
+.env.local
+Secrets.swift
+secrets.swift
+
+# CocoaPods (not used, but safe)
+Pods/
+Podfile.lock
