@@ -61,7 +61,7 @@ The project already declares `AppAuth-iOS` in the native Xcode project. Xcode fe
 
 ## Auth Configuration
 
-All constants are in `ZeroDevOps/App/AppConfig.swift`:
+All constants are in `App/AppConfig.swift`:
 
 ```swift
 static let apiBaseURL      = "https://api.devopsbootcamp.dev/"
@@ -78,34 +78,35 @@ The Keycloak client `zero-devops-mobile` must have `com.devopsbootcamp.app://cal
 ## Project Structure
 
 ```
-ZeroDevOps/
-├── App/
-│   ├── ZeroDevOpsApp.swift       # @main entry point
-│   ├── ContentView.swift         # Root login ↔ main router
-│   ├── AppContainer.swift        # Session + context manager
-│   └── AppConfig.swift           # OIDC / API constants
-├── Core/
-│   ├── Auth/
-│   │   ├── OidcAuthManager.swift # AppAuth PKCE flow
-│   │   ├── AuthSessionManager.swift # Token expiry + session
-│   │   ├── TokenStore.swift      # Keychain persistence
-│   │   └── TokenBundle.swift     # Token model
-│   ├── Network/
-│   │   └── APIClient.swift       # URLSession HTTP client
-│   └── Model/
-│       └── Models.swift          # All API data models
-└── Features/
-    ├── Login/
-    ├── Dashboard/
-    ├── Blueprints/
-    ├── CloudAccounts/
-    ├── Analytics/
-    ├── Drift/
-    ├── Notifications/
-    ├── Profile/
-    ├── Deployment/
-    ├── MainShell/
-    └── Workspace/
+App/
+├── ZeroDevOpsApp.swift           # @main entry point
+├── ContentView.swift             # Root login ↔ main router
+├── AppContainer.swift            # Session + context manager
+└── AppConfig.swift               # OIDC / API constants
+Core/
+├── Auth/
+│   ├── OidcAuthManager.swift     # AppAuth PKCE flow
+│   ├── AuthSessionManager.swift  # Token expiry + session
+│   ├── TokenStore.swift          # Keychain persistence
+│   └── TokenBundle.swift         # Token model
+├── Network/
+│   └── APIClient.swift           # URLSession HTTP client
+└── Model/
+    └── Models.swift              # All API data models
+Features/
+├── Login/
+├── Dashboard/
+├── Blueprints/
+├── CloudAccounts/
+├── Analytics/
+├── Drift/
+├── Notifications/
+├── Profile/
+├── Deployment/
+├── MainShell/
+└── Workspace/
+Assets.xcassets/
+Info.plist
 ZeroDevOpsTests/
 ZeroDevOps.xcodeproj/
 ```
