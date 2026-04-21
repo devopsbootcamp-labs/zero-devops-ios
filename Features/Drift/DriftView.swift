@@ -46,7 +46,18 @@ struct DriftView: View {
             }
             .overlay {
                 if vm.isLoading && vm.items.isEmpty { ProgressView("Loading…") }
-                if let err = vm.error { ContentUnavailableView(err, systemImage: "ant") }
+                if let err = vm.error {
+                    VStack(spacing: 8) {
+                        Image(systemName: "ant")
+                            .font(.title2)
+                            .foregroundColor(.secondary)
+                        Text(err)
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                            .multilineTextAlignment(.center)
+                    }
+                    .padding(16)
+                }
             }
             .task { await vm.load(accountId: container.selectedAccountId) }
             .refreshable { await vm.load(accountId: container.selectedAccountId) }

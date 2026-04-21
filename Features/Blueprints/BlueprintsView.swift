@@ -21,7 +21,18 @@ struct BlueprintsView: View {
             .navigationTitle("Blueprints")
             .overlay {
                 if vm.isLoading { ProgressView("Loading…") }
-                if let err = vm.error { ContentUnavailableView(err, systemImage: "square.stack.3d.up.slash") }
+                if let err = vm.error {
+                    VStack(spacing: 8) {
+                        Image(systemName: "square.stack.3d.up.slash")
+                            .font(.title2)
+                            .foregroundColor(.secondary)
+                        Text(err)
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                            .multilineTextAlignment(.center)
+                    }
+                    .padding(16)
+                }
             }
             .task { await vm.load() }
             .refreshable { await vm.load() }

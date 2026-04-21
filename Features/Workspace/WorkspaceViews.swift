@@ -20,9 +20,28 @@ struct DeploymentsView: View {
             }
             .overlay {
                 if vm.isLoading { ProgressView("Loading…") }
-                if let err = vm.error { ContentUnavailableView(err, systemImage: "server.rack") }
+                if let err = vm.error {
+                    VStack(spacing: 8) {
+                        Image(systemName: "server.rack")
+                            .font(.title2)
+                            .foregroundColor(.secondary)
+                        Text(err)
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                            .multilineTextAlignment(.center)
+                    }
+                    .padding(16)
+                }
                 if !vm.isLoading && vm.deployments.isEmpty && vm.error == nil {
-                    ContentUnavailableView("No Deployments", systemImage: "server.rack")
+                    VStack(spacing: 8) {
+                        Image(systemName: "server.rack")
+                            .font(.title2)
+                            .foregroundColor(.secondary)
+                        Text("No Deployments")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(16)
                 }
             }
             .task { await vm.load(accountId: container.selectedAccountId) }
@@ -69,7 +88,18 @@ struct ResourcesView: View {
         .navigationTitle("Resources")
         .overlay {
             if vm.isLoading { ProgressView("Loading…") }
-            if let err = vm.error { ContentUnavailableView(err, systemImage: "cube.box") }
+            if let err = vm.error {
+                VStack(spacing: 8) {
+                    Image(systemName: "cube.box")
+                        .font(.title2)
+                        .foregroundColor(.secondary)
+                    Text(err)
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                }
+                .padding(16)
+            }
         }
         .task { await vm.load() }
         .refreshable { await vm.load() }

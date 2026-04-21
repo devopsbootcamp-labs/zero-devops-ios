@@ -55,7 +55,16 @@ struct CloudAccountsView: View {
             .overlay {
                 if vm.isLoading { ProgressView("Loading…") }
                 if let err = vm.error {
-                    ContentUnavailableView(err, systemImage: "cloud.slash")
+                    VStack(spacing: 8) {
+                        Image(systemName: "cloud.slash")
+                            .font(.title2)
+                            .foregroundColor(.secondary)
+                        Text(err)
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                            .multilineTextAlignment(.center)
+                    }
+                    .padding(16)
                 }
             }
             .task { await vm.load() }

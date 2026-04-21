@@ -46,9 +46,28 @@ struct NotificationsView: View {
             .navigationTitle("Alerts")
             .overlay {
                 if vm.isLoading && vm.notifications.isEmpty { ProgressView("Loading…") }
-                if let err = vm.error { ContentUnavailableView(err, systemImage: "bell.slash") }
+                if let err = vm.error {
+                    VStack(spacing: 8) {
+                        Image(systemName: "bell.slash")
+                            .font(.title2)
+                            .foregroundColor(.secondary)
+                        Text(err)
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                            .multilineTextAlignment(.center)
+                    }
+                    .padding(16)
+                }
                 if !vm.isLoading && vm.notifications.isEmpty && vm.error == nil {
-                    ContentUnavailableView("No Alerts", systemImage: "bell.badge.checkmark")
+                    VStack(spacing: 8) {
+                        Image(systemName: "bell.badge.checkmark")
+                            .font(.title2)
+                            .foregroundColor(.secondary)
+                        Text("No Alerts")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(16)
                 }
             }
             .task { await vm.load() }
