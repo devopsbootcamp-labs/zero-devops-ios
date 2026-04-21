@@ -1,6 +1,7 @@
 import SwiftUI
+import Foundation
 
-/// Main tab shell — mirrors Android MainShell with HorizontalPager (7 tabs).
+/// Main tab shell — mirrors Android MainShell with HorizontalPager-style tabs.
 struct MainShellView: View {
 
     @EnvironmentObject private var container: AppContainer
@@ -13,6 +14,7 @@ struct MainShellView: View {
         ("Cloud",      "cloud"),
         ("Analytics",  "chart.bar"),
         ("Drift",      "ant"),
+        ("Chat",       "bubble.left.and.bubble.right"),
         ("Alerts",     "bell"),
         ("Profile",    "person.circle"),
     ]
@@ -30,10 +32,12 @@ struct MainShellView: View {
                     .tabItem { Label(tabs[3].label, systemImage: tabs[3].icon) }.tag(3)
                 DriftView()
                     .tabItem { Label(tabs[4].label, systemImage: tabs[4].icon) }.tag(4)
-                NotificationsView(navPath: $navPath)
+                ChatView()
                     .tabItem { Label(tabs[5].label, systemImage: tabs[5].icon) }.tag(5)
-                ProfileView()
+                NotificationsView(navPath: $navPath)
                     .tabItem { Label(tabs[6].label, systemImage: tabs[6].icon) }.tag(6)
+                ProfileView()
+                    .tabItem { Label(tabs[7].label, systemImage: tabs[7].icon) }.tag(7)
             }
             .navigationDestination(for: AppRoute.self) { route in
                 switch route {
@@ -47,6 +51,8 @@ struct MainShellView: View {
                     ResourceDetailView(deploymentId: deploymentId, resourceId: resourceId)
                 case .cost:
                     CostView()
+                case .chat:
+                    ChatView()
                 }
             }
         }
@@ -61,4 +67,135 @@ enum AppRoute: Hashable {
     case resources
     case resourceDetail(deploymentId: String, resourceId: String)
     case cost
+    case chat
+}
+
+// MARK: - Chat
+
+@MainActor
+private final class ChatViewModel: ObservableObject {
+    @Published var messages: [ChatMessage] = []
+    @Published var draft = ""
+    @Published var isSending = false
+    @Published var error: String?
+
+    private let api = APIClient.shared
+
+    func send() async {
+        let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty, !isSending else { return }
+
+        draft = ""
+        error = nil
+        isSending = true
+        messages.append(ChatMessage(role: .user, text: text, createdAt: Date()))
+
+        let body = ChatRequest(message: text, context: "zero-devops-ios")
+        let reply = await requestReply(body)
+
+        if let reply, !reply.isEmpty {
+            messages.append(ChatMessage(role: .assistant, text: reply, createdAt: Date()))
+        } else {
+            error = "Chat service is unavailable right now."
+            messages.append(ChatMessage(
+                role: .assistant,
+                text: "I could not reach the chat backend. Please try again in a moment.",
+                createdAt: Date()
+            ))
+        }
+        isSending = false
+    }
+
+    private func requestReply(_ body: ChatRequest) async -> String? {
+        if let r: ChatResponse = try? await api.post("api/v1/chat", body: body), !r.resolvedText.isEmpty {
+            return r.resolvedText
+        }
+        if let r: ChatResponse = try? await api.post("api/v1/ai/chat", body: body), !r.resolvedText.isEmpty {
+            return r.resolvedText
+        }
+        if let r: ChatResponse = try? await api.post("api/v1/assistant/chat", body: body), !r.resolvedText.isEmpty {
+            return r.resolvedText
+        }
+        return nil
+    }
+}
+
+private struct ChatView: View {
+    @StateObject private var vm = ChatViewModel()
+
+    var body: some View {
+        VStack(spacing: 0) {
+            if vm.messages.isEmpty {
+                ContentUnavailableFallback(
+                    title: "DevOps Assistant",
+                    subtitle: "Ask about deployments, drift posture, resources, and remediation steps."
+                )
+                .padding(.top, 24)
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 10) {
+                        ForEach(vm.messages) { msg in
+                            HStack {
+                                if msg.role == .assistant { Spacer(minLength: 28) }
+                                Text(msg.text)
+                                    .font(.subheadline)
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 9)
+                                    .background(msg.role == .assistant ? Color.secondary.opacity(0.15) : Color.accentColor.opacity(0.18))
+                                    .cornerRadius(10)
+                                if msg.role == .user { Spacer(minLength: 28) }
+                            }
+                        }
+                    }
+                    .padding()
+                }
+            }
+
+            if let err = vm.error {
+                Text(err)
+                    .font(.caption)
+                    .foregroundColor(.red)
+                    .padding(.horizontal)
+            }
+
+            HStack(spacing: 8) {
+                TextField("Ask Zero DevOps AI", text: $vm.draft, axis: .vertical)
+                    .textFieldStyle(.roundedBorder)
+                    .lineLimit(1...4)
+
+                Button {
+                    Task { await vm.send() }
+                } label: {
+                    if vm.isSending {
+                        ProgressView()
+                    } else {
+                        Image(systemName: "paperplane.fill")
+                    }
+                }
+                .disabled(vm.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || vm.isSending)
+            }
+            .padding()
+        }
+        .navigationTitle("Chat")
+    }
+}
+
+private struct ContentUnavailableFallback: View {
+    let title: String
+    let subtitle: String
+
+    var body: some View {
+        VStack(spacing: 10) {
+            Image(systemName: "bubble.left.and.bubble.right")
+                .font(.title2)
+                .foregroundColor(.secondary)
+            Text(title)
+                .font(.headline)
+            Text(subtitle)
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal)
+        }
+    }
 }

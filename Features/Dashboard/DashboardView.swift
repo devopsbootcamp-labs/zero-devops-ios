@@ -69,6 +69,9 @@ struct DashboardView: View {
                     QuickLinkRow(label: "Cost Breakdown",    icon: "dollarsign.circle") {
                         navPath.append(AppRoute.cost)
                     }
+                    QuickLinkRow(label: "AI Chat Assistant", icon: "bubble.left.and.bubble.right") {
+                        navPath.append(AppRoute.chat)
+                    }
                 }
                 .padding(.horizontal)
 

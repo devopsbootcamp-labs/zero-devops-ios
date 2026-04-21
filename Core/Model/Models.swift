@@ -303,6 +303,40 @@ struct DashboardKpis: Codable {
     let resources:    Int?
 }
 
+// MARK: - Chat
+
+enum ChatMessageRole: String, Codable {
+    case user
+    case assistant
+    case system
+}
+
+struct ChatMessage: Codable, Identifiable {
+    let id = UUID()
+    let role: ChatMessageRole
+    let text: String
+    let createdAt: Date
+
+    enum CodingKeys: String, CodingKey {
+        case role, text, createdAt
+    }
+}
+
+struct ChatRequest: Encodable {
+    let message: String
+    let context: String?
+}
+
+struct ChatResponse: Decodable {
+    let reply: String?
+    let message: String?
+    let content: String?
+
+    var resolvedText: String {
+        reply ?? message ?? content ?? ""
+    }
+}
+
 // MARK: - Profile / User
 
 struct UserProfile: Codable {
@@ -318,7 +352,7 @@ struct UserProfile: Codable {
 
 // MARK: - Generic list wrappers
 
-struct ListResponse<T: Codable>: Codable {
+struct ListResponse<T: Decodable>: Decodable {
     let data:    [T]?
     let items:   [T]?
     let results: [T]?
