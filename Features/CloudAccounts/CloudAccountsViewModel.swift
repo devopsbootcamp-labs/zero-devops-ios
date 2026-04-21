@@ -39,7 +39,9 @@ final class CloudAccountsViewModel: ObservableObject {
         var seen  = Set<String>()
         var result = [CloudAccount]()
         for dep in deployments {
-            let scopeId = dep.cloudAccountId ?? dep.accountId ?? continue
+            guard let scopeId = dep.cloudAccountId ?? dep.accountId else {
+                continue
+            }
             if seen.insert(scopeId).inserted {
                 result.append(CloudAccount(
                     id:               scopeId,
