@@ -176,23 +176,21 @@ final class APIClient {
         if let value = try? decoder.decode(T.self, from: data) { return value }
         // Try envelope
         if let env = try? decoder.decode(Envelope<T>.self, from: data) {
-            if let v = env.data
-                ?? env.results
-                ?? env.items
-                ?? env.accounts
-                ?? env.cloudAccounts
-                ?? env.deployments
-                ?? env.resources
-                ?? env.providers
-                ?? env.trends
-                ?? env.activity
-                ?? env.insights
-                ?? env.failures
-                ?? env.blueprints
-                ?? env.notifications
-                ?? env.alerts {
-                return v
-            }
+            if let value = env.data { return value }
+            if let value = env.results { return value }
+            if let value = env.items { return value }
+            if let value = env.accounts { return value }
+            if let value = env.cloudAccounts { return value }
+            if let value = env.deployments { return value }
+            if let value = env.resources { return value }
+            if let value = env.providers { return value }
+            if let value = env.trends { return value }
+            if let value = env.activity { return value }
+            if let value = env.insights { return value }
+            if let value = env.failures { return value }
+            if let value = env.blueprints { return value }
+            if let value = env.notifications { return value }
+            if let value = env.alerts { return value }
         }
         // Empty body
         if T.self == EmptyResponse.self, let v = EmptyResponse() as? T { return v }
