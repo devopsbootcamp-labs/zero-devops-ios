@@ -9,7 +9,7 @@ build/
 *.dSYM.zip
 *.dSYM
 
-# XcodeGen generated (regenerate with `xcodegen generate`)
+# Xcode project metadata
 *.xcodeproj/
 !*.xcodeproj/project.pbxproj
 *.xcodeproj/xcshareddata/xcschemes/*.xcscheme

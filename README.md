@@ -26,17 +26,13 @@ Detail screens: `DeploymentDetailView`, `ResourcesView`, `ResourceDetailView`, `
 | Auth | [AppAuth-iOS](https://github.com/openid/AppAuth-iOS) — OIDC PKCE |
 | Token storage | iOS Keychain (Security framework) |
 | Networking | URLSession + async/await |
-| Config management | XcodeGen (`project.yml`) |
+| Project format | Native Xcode project (`ZeroDevOps.xcodeproj`) |
 
 ---
 
 ## Setup (Mac + Xcode)
 
 ### Prerequisites
-
-```bash
-brew install xcodegen
-```
 
 Xcode 15+ and an Apple Developer account for device signing.
 
@@ -47,10 +43,7 @@ Xcode 15+ and an Apple Developer account for device signing.
 git clone https://github.com/devopsbootcamp-labs/zero-devops-ios.git
 cd zero-devops-ios
 
-# 2. Generate Xcode project
-xcodegen generate
-
-# 3. Open
+# 2. Open
 open ZeroDevOps.xcodeproj
 ```
 
@@ -62,7 +55,7 @@ In Xcode:
 
 ### SPM dependencies
 
-XcodeGen resolves `AppAuth-iOS` automatically when you open the project. Xcode will fetch it on first open.
+The project already declares `AppAuth-iOS` in the native Xcode project. Xcode fetches it automatically on first open.
 
 ---
 
@@ -114,7 +107,7 @@ ZeroDevOps/
     ├── MainShell/
     └── Workspace/
 ZeroDevOpsTests/
-project.yml                       # XcodeGen spec
+ZeroDevOps.xcodeproj/
 ```
 
 ---
