@@ -79,6 +79,7 @@ private struct DeploymentListRow: View {
 // MARK: - Resources
 
 struct ResourcesView: View {
+    @EnvironmentObject private var container: AppContainer
     @StateObject private var vm = ResourcesViewModel()
 
     var body: some View {
@@ -101,8 +102,8 @@ struct ResourcesView: View {
                 .padding(16)
             }
         }
-        .task { await vm.load() }
-        .refreshable { await vm.load() }
+        .task { await vm.load(accountId: container.selectedAccountId) }
+        .refreshable { await vm.load(accountId: container.selectedAccountId) }
     }
 }
 

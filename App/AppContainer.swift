@@ -90,6 +90,10 @@ final class AppContainer: ObservableObject {
             selectedAccountId = accounts.first?.resolvedScopeId
         } else if let response: CloudAccountsResponse = try? await api.get("api/v1/cloud/accounts") {
             selectedAccountId = response.resolved.first?.resolvedScopeId
+        } else if let response: CloudAccountsResponse = try? await api.get("api/v1/cloud-accounts") {
+            selectedAccountId = response.resolved.first?.resolvedScopeId
+        } else if let accounts: [CloudAccount] = try? await api.get("api/v1/cloud-accounts") {
+            selectedAccountId = accounts.first?.resolvedScopeId
         }
     }
 

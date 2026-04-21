@@ -14,9 +14,12 @@ final class DeploymentsViewModel: ObservableObject {
         isLoading = true
         error     = nil
         if let aid = accountId,
-           let list: [Deployment] = try? await api.get("api/v1/cloud-accounts/\(aid)/deployments") {
+           let list: [Deployment] = try? await api.get("api/v1/cloud-accounts/\(aid)/deployments?limit=500") {
             deployments = list
-        } else if let list: [Deployment] = try? await api.get("api/v1/deployments") {
+        } else if let aid = accountId,
+                  let list: [Deployment] = try? await api.get("api/v1/deployments?cloud_account_id=\(aid)&limit=500") {
+            deployments = list
+        } else if let list: [Deployment] = try? await api.get("api/v1/deployments?limit=500") {
             deployments = list
         } else {
             error = "Unable to load deployments."
@@ -35,13 +38,30 @@ final class ResourcesViewModel: ObservableObject {
 
     private let api = APIClient.shared
 
-    func load() async {
+    func load(accountId: String?) async {
         isLoading = true
         error     = nil
         if let list: [Resource] = try? await api.get("api/v1/resources") {
             resources = list
         } else if let list: [Resource] = try? await api.get("api/v1/inventory") {
             resources = list
+        } else if let aid = accountId,
+                  let deps: [Deployment] = try? await api.get("api/v1/cloud-accounts/\(aid)/deployments?limit=500") {
+            resources = deps.map {
+                Resource(
+                    id: $0.id,
+                    resourceId: nil,
+                    name: $0.resolvedName,
+                    type: "deployment",
+                    provider: $0.cloudProvider,
+                    region: $0.region,
+                    status: $0.status,
+                    driftStatus: $0.driftStatus,
+                    deploymentId: $0.id,
+                    deploymentName: $0.resolvedName,
+                    tags: nil
+                )
+            }
         } else {
             error = "Unable to load resources."
         }

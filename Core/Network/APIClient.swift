@@ -21,10 +21,21 @@ enum APIError: LocalizedError {
 // MARK: - Envelope wrappers (mirrors Android response fallback parsing)
 
 private struct Envelope<T: Decodable>: Decodable {
-    let data:     T?
-    let results:  T?
-    let items:    T?
-    let accounts: T?
+    let data:          T?
+    let results:       T?
+    let items:         T?
+    let accounts:      T?
+    let cloudAccounts: T?
+    let deployments:   T?
+    let resources:     T?
+    let providers:     T?
+    let trends:        T?
+    let activity:      T?
+    let insights:      T?
+    let failures:      T?
+    let blueprints:    T?
+    let notifications: T?
+    let alerts:        T?
 }
 
 // MARK: - APIClient
@@ -128,14 +139,28 @@ final class APIClient {
     }
 
     private func shouldAttachAccountHeader(path: String) -> Bool {
-        let excluded = [
-            "drift/jobs",
-            "/api/v1/accounts",
-            "/api/v1/cloud/accounts",
-            "/api/v1/analytics",
-            "/api/v1/dashboard",
-        ]
-        return !excluded.contains(where: { path.contains($0) })
+        let normalized = path.hasPrefix("/") ? path : "/\(path)"
+
+        // Keep aggregate/list endpoints tenant-scoped to match web behavior.
+        if normalized.hasPrefix("/api/v1/cloud/accounts") { return false }
+        if normalized.hasPrefix("/api/v1/accounts") { return false }
+        if normalized.hasPrefix("/api/v1/analytics") { return false }
+        if normalized.hasPrefix("/api/v1/dashboard") { return false }
+        if normalized.hasPrefix("/api/v1/cost") { return false }
+        if normalized == "/api/v1/resources" { return false }
+        if normalized.hasPrefix("/api/v1/inventory") { return false }
+        if normalized.hasPrefix("/api/v1/drift/posture") { return false }
+        if normalized.hasPrefix("/api/v1/drift/deployments") { return false }
+        if normalized.hasPrefix("/api/v1/drift/jobs") { return false }
+
+        // Avoid duplicate account scoping when account is already in path.
+        if normalized.range(of: "^/api/v1/cloud-accounts/[^/]+/deployments$", options: .regularExpression) != nil {
+            return false
+        }
+        if normalized.range(of: "^/api/v1/cloud-accounts/[^/]+/cost/.*$", options: .regularExpression) != nil {
+            return false
+        }
+        return true
     }
 
     private func validate(response: URLResponse, data: Data) throws {
@@ -151,7 +176,23 @@ final class APIClient {
         if let value = try? decoder.decode(T.self, from: data) { return value }
         // Try envelope
         if let env = try? decoder.decode(Envelope<T>.self, from: data) {
-            if let v = env.data ?? env.results ?? env.items ?? env.accounts { return v }
+            if let v = env.data
+                ?? env.results
+                ?? env.items
+                ?? env.accounts
+                ?? env.cloudAccounts
+                ?? env.deployments
+                ?? env.resources
+                ?? env.providers
+                ?? env.trends
+                ?? env.activity
+                ?? env.insights
+                ?? env.failures
+                ?? env.blueprints
+                ?? env.notifications
+                ?? env.alerts {
+                return v
+            }
         }
         // Empty body
         if T.self == EmptyResponse.self, let v = EmptyResponse() as? T { return v }

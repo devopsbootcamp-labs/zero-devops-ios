@@ -17,6 +17,8 @@ final class CloudAccountsViewModel: ObservableObject {
             accounts = deduplicated(list)
         } else if let resp: CloudAccountsResponse = try? await api.get("api/v1/cloud/accounts") {
             accounts = deduplicated(resp.resolved)
+        } else if let resp: CloudAccountsResponse = try? await api.get("api/v1/cloud-accounts") {
+            accounts = deduplicated(resp.resolved)
         } else if let list: [CloudAccount] = try? await api.get("api/v1/cloud-accounts") {
             accounts = deduplicated(list)
         } else {

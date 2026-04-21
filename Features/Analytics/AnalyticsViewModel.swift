@@ -51,11 +51,15 @@ final class AnalyticsViewModel: ObservableObject {
         try? await api.get(path)
     }
     private func tryGetList<T: Decodable & Identifiable>(_ type: T.Type, path: String) async -> [T] {
-        (try? await api.get(path)) ?? []
+        if let list: [T] = try? await api.get(path) { return list }
+        if let wrapped: ListResponse<T> = try? await api.get(path) { return wrapped.resolved }
+        return []
     }
     private func loadAccounts() async -> [CloudAccount] {
         if let list: [CloudAccount] = try? await api.get("api/v1/accounts") { return list }
         if let resp: CloudAccountsResponse = try? await api.get("api/v1/cloud/accounts") { return resp.resolved }
+        if let list: [CloudAccount] = try? await api.get("api/v1/cloud-accounts") { return list }
+        if let resp: CloudAccountsResponse = try? await api.get("api/v1/cloud-accounts") { return resp.resolved }
         return []
     }
 }
