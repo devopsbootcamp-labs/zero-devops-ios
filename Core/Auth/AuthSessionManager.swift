@@ -10,7 +10,10 @@ final class AuthSessionManager: ObservableObject {
     private let expirySkew: TimeInterval = 30
     private let refreshSkew: TimeInterval = 60
     private let refreshLock = NSLock()
+    private let contextLock = NSLock()
     private var inFlightRefresh: Task<TokenBundle, Error>?
+    private var requestTenantId: String?
+    private var requestAccountId: String?
 
     @Published private(set) var isAuthenticated = false
 
@@ -25,6 +28,25 @@ final class AuthSessionManager: ObservableObject {
 
     func currentBundle() -> TokenBundle? {
         tokenStore.load()
+    }
+
+    func currentTenantId() -> String? {
+        contextLock.lock()
+        defer { contextLock.unlock() }
+        return requestTenantId
+    }
+
+    func currentAccountId() -> String? {
+        contextLock.lock()
+        defer { contextLock.unlock() }
+        return requestAccountId
+    }
+
+    func updateRequestContext(tenantId: String?, accountId: String?) {
+        contextLock.lock()
+        requestTenantId = tenantId?.trimmingCharacters(in: .whitespacesAndNewlines)
+        requestAccountId = accountId?.trimmingCharacters(in: .whitespacesAndNewlines)
+        contextLock.unlock()
     }
 
     /// Returns a currently valid access token or refreshes it if possible.
@@ -85,11 +107,16 @@ final class AuthSessionManager: ObservableObject {
     func saveBundle(_ bundle: TokenBundle) {
         guard !bundle.accessToken.isEmpty else { return }
         tokenStore.save(bundle)
+        updateRequestContext(
+            tenantId: bundle.tenantId,
+            accountId: bundle.cloudAccountId ?? bundle.accountId
+        )
         DispatchQueue.main.async { self.isAuthenticated = true }
     }
 
     func logout() {
         tokenStore.clear()
+        updateRequestContext(tenantId: nil, accountId: nil)
         DispatchQueue.main.async { self.isAuthenticated = false }
     }
 
@@ -104,6 +131,10 @@ final class AuthSessionManager: ObservableObject {
             logout()
             return false
         }
+        updateRequestContext(
+            tenantId: bundle.tenantId,
+            accountId: bundle.cloudAccountId ?? bundle.accountId
+        )
         DispatchQueue.main.async { self.isAuthenticated = true }
         return true
     }

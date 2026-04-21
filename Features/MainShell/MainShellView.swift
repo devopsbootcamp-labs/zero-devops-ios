@@ -99,7 +99,7 @@ private final class ChatViewModel: ObservableObject {
             error = "Chat service is unavailable right now."
             messages.append(ChatMessage(
                 role: .assistant,
-                text: "I could not reach the chat backend. Please try again in a moment.",
+                text: "I could not reach the chat service. Please try again in a moment.",
                 createdAt: Date()
             ))
         }
@@ -127,8 +127,8 @@ private struct ChatView: View {
         VStack(spacing: 0) {
             if vm.messages.isEmpty {
                 ContentUnavailableFallback(
-                    title: "DevOps Assistant",
-                    subtitle: "Ask about deployments, drift posture, resources, and remediation steps."
+                    title: "Chat",
+                    subtitle: "Send a message to the platform chat service when it is available."
                 )
                 .padding(.top, 24)
             } else {
@@ -159,7 +159,7 @@ private struct ChatView: View {
             }
 
             HStack(spacing: 8) {
-                TextField("Ask Zero DevOps AI", text: $vm.draft, axis: .vertical)
+                TextField("Message chat service", text: $vm.draft, axis: .vertical)
                     .textFieldStyle(.roundedBorder)
                     .lineLimit(1...4)
 

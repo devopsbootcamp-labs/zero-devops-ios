@@ -27,6 +27,10 @@ final class AppContainer: ObservableObject {
     private let oidcManager    = OidcAuthManager.shared
     private let api            = APIClient.shared
 
+    private struct TenantIdentity: Decodable {
+        let id: String
+    }
+
     // MARK: - App Launch
 
     func onAppear() {
@@ -81,25 +85,66 @@ final class AppContainer: ObservableObject {
     private func hydrateContext(from bundle: TokenBundle) {
         tenantId          = bundle.tenantId
         selectedAccountId = bundle.cloudAccountId ?? bundle.accountId
+        sessionManager.updateRequestContext(
+            tenantId: tenantId,
+            accountId: selectedAccountId
+        )
     }
 
     private func ensureTenantContext() async {
-        guard selectedAccountId == nil else { return }
-        // Fetch cloud accounts and use the first one as default scope
-        if let accounts: [CloudAccount] = try? await api.get("api/v1/accounts") {
-            selectedAccountId = accounts.first?.resolvedScopeId
-        } else if let response: CloudAccountsResponse = try? await api.get("api/v1/cloud/accounts") {
-            selectedAccountId = response.resolved.first?.resolvedScopeId
-        } else if let response: CloudAccountsResponse = try? await api.get("api/v1/cloud-accounts") {
-            selectedAccountId = response.resolved.first?.resolvedScopeId
-        } else if let accounts: [CloudAccount] = try? await api.get("api/v1/cloud-accounts") {
-            selectedAccountId = accounts.first?.resolvedScopeId
+        if tenantId == nil, let profile = await fetchCurrentProfile() {
+            tenantId = profile.tenantId ?? tenantId
+            if selectedAccountId == nil {
+                selectedAccountId = profile.cloudAccountId ?? profile.accountId
+            }
         }
+
+        if tenantId == nil,
+           let tenants: [TenantIdentity] = try? await api.get("api/v1/tenants") {
+            tenantId = tenants.first?.id
+        }
+
+        if selectedAccountId == nil {
+            if let accounts: [CloudAccount] = try? await api.get("api/v1/accounts") {
+                selectedAccountId = accounts.first?.resolvedScopeId
+            } else if let response: CloudAccountsResponse = try? await api.get("api/v1/cloud/accounts") {
+                selectedAccountId = response.resolved.first?.resolvedScopeId
+            } else if let response: CloudAccountsResponse = try? await api.get("api/v1/cloud-accounts") {
+                selectedAccountId = response.resolved.first?.resolvedScopeId
+            } else if let accounts: [CloudAccount] = try? await api.get("api/v1/cloud-accounts") {
+                selectedAccountId = accounts.first?.resolvedScopeId
+            }
+        }
+
+        sessionManager.updateRequestContext(
+            tenantId: tenantId,
+            accountId: selectedAccountId
+        )
+    }
+
+    private func fetchCurrentProfile() async -> UserProfile? {
+        let paths = [
+            "api/v1/auth/me",
+            "api/v1/auth/userinfo",
+            "api/v1/users/me",
+            "api/v1/auth/profile",
+            "api/v1/me",
+        ]
+        for path in paths {
+            if let profile: UserProfile = try? await api.get(path) {
+                return profile
+            }
+        }
+        return nil
     }
 
     // MARK: - Account Switching
 
     func selectAccount(_ id: String?) {
         selectedAccountId = id
+        sessionManager.updateRequestContext(
+            tenantId: tenantId,
+            accountId: selectedAccountId
+        )
     }
 }

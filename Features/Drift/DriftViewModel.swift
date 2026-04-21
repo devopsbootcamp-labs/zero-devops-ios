@@ -59,9 +59,12 @@ final class DriftViewModel: ObservableObject {
     private func fetchNameMap(accountId: String?) async throws -> [String: String] {
         var deps: [Deployment] = []
         if let aid = accountId,
-           let list: [Deployment] = try? await api.get("api/v1/cloud-accounts/\(aid)/deployments") {
+           let list: [Deployment] = try? await api.get("api/v1/cloud-accounts/\(aid)/deployments?limit=500") {
             deps = list
-        } else if let list: [Deployment] = try? await api.get("api/v1/deployments") {
+        } else if let aid = accountId,
+                  let list: [Deployment] = try? await api.get("api/v1/deployments?cloud_account_id=\(aid)&limit=500") {
+            deps = list
+        } else if let list: [Deployment] = try? await api.get("api/v1/deployments?limit=500") {
             deps = list
         }
         return Dictionary(uniqueKeysWithValues: deps.map { ($0.id, $0.resolvedName) })

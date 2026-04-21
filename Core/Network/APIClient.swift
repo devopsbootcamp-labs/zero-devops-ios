@@ -123,14 +123,12 @@ final class APIClient {
         if let token {
             req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
-        if let bundle = sessionManager.currentBundle() {
-            if let tid = bundle.tenantId {
-                req.setValue(tid, forHTTPHeaderField: "x-tenant-id")
-            }
-            // Do NOT attach x-account-id for aggregate/drift/jobs endpoints
-            if let aid = bundle.accountId, shouldAttachAccountHeader(path: path) {
-                req.setValue(aid, forHTTPHeaderField: "x-account-id")
-            }
+        if let tid = sessionManager.currentTenantId() {
+            req.setValue(tid, forHTTPHeaderField: "x-tenant-id")
+        }
+        // Do NOT attach x-account-id for aggregate/drift/jobs endpoints.
+        if let aid = sessionManager.currentAccountId(), shouldAttachAccountHeader(path: path) {
+            req.setValue(aid, forHTTPHeaderField: "x-account-id")
         }
         if let body = body, !(body is EmptyBody) {
             req.httpBody = try JSONEncoder().encode(body)

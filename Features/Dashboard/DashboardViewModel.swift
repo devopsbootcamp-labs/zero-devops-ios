@@ -32,11 +32,14 @@ final class DashboardViewModel: ObservableObject {
 
     private func fetchDeployments(accountId: String?) async throws -> [Deployment] {
         if let aid = accountId {
-            if let list: [Deployment] = try? await api.get("api/v1/cloud-accounts/\(aid)/deployments") {
+            if let list: [Deployment] = try? await api.get("api/v1/cloud-accounts/\(aid)/deployments?limit=500") {
+                return list
+            }
+            if let list: [Deployment] = try? await api.get("api/v1/deployments?cloud_account_id=\(aid)&limit=500") {
                 return list
             }
         }
-        return try await api.get("api/v1/deployments")
+        return try await api.get("api/v1/deployments?limit=500")
     }
 
     private func fetchPosture(accountId: String?) async throws -> DriftPosture {
