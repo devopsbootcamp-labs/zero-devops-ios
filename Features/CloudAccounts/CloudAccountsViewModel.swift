@@ -34,7 +34,10 @@ final class CloudAccountsViewModel: ObservableObject {
 
     private func deduplicated(_ list: [CloudAccount]) -> [CloudAccount] {
         var seen  = Set<String>()
-        return list.filter { seen.insert($0.resolvedScopeId).inserted }
+        return list.filter {
+            guard let key = $0.requestScopeId ?? $0.requestAccountId else { return false }
+            return seen.insert(key).inserted
+        }
     }
 
     private func derivedAccounts(from deployments: [Deployment]) -> [CloudAccount] {

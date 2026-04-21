@@ -31,6 +31,15 @@ final class AppContainer: ObservableObject {
         let id: String
     }
 
+    private func isUsableAccountId(_ value: String?) -> Bool {
+        guard let normalized = value?.trimmingCharacters(in: .whitespacesAndNewlines), !normalized.isEmpty else {
+            return false
+        }
+        if normalized.caseInsensitiveCompare("unknown") == .orderedSame { return false }
+        if normalized.lowercased().hasSuffix(":unknown") { return false }
+        return true
+    }
+
     // MARK: - App Launch
 
     func onAppear() {
@@ -84,7 +93,8 @@ final class AppContainer: ObservableObject {
 
     private func hydrateContext(from bundle: TokenBundle) {
         tenantId          = bundle.tenantId
-        selectedAccountId = bundle.cloudAccountId ?? bundle.accountId
+        let scope = bundle.cloudAccountId ?? bundle.accountId
+        selectedAccountId = isUsableAccountId(scope) ? scope : nil
         sessionManager.updateRequestContext(
             tenantId: tenantId,
             accountId: selectedAccountId
@@ -95,7 +105,8 @@ final class AppContainer: ObservableObject {
         if tenantId == nil, let profile = await fetchCurrentProfile() {
             tenantId = profile.tenantId ?? tenantId
             if selectedAccountId == nil {
-                selectedAccountId = profile.cloudAccountId ?? profile.accountId
+                let scope = profile.cloudAccountId ?? profile.accountId
+                selectedAccountId = isUsableAccountId(scope) ? scope : nil
             }
         }
 
@@ -106,13 +117,13 @@ final class AppContainer: ObservableObject {
 
         if selectedAccountId == nil {
             if let accounts: [CloudAccount] = try? await api.get("api/v1/accounts") {
-                selectedAccountId = accounts.first?.resolvedScopeId
+                selectedAccountId = accounts.first(where: { isUsableAccountId($0.requestScopeId) })?.requestScopeId
             } else if let response: CloudAccountsResponse = try? await api.get("api/v1/cloud/accounts") {
-                selectedAccountId = response.resolved.first?.resolvedScopeId
+                selectedAccountId = response.resolved.first(where: { isUsableAccountId($0.requestScopeId) })?.requestScopeId
             } else if let response: CloudAccountsResponse = try? await api.get("api/v1/cloud-accounts") {
-                selectedAccountId = response.resolved.first?.resolvedScopeId
+                selectedAccountId = response.resolved.first(where: { isUsableAccountId($0.requestScopeId) })?.requestScopeId
             } else if let accounts: [CloudAccount] = try? await api.get("api/v1/cloud-accounts") {
-                selectedAccountId = accounts.first?.resolvedScopeId
+                selectedAccountId = accounts.first(where: { isUsableAccountId($0.requestScopeId) })?.requestScopeId
             }
         }
 
@@ -141,7 +152,7 @@ final class AppContainer: ObservableObject {
     // MARK: - Account Switching
 
     func selectAccount(_ id: String?) {
-        selectedAccountId = id
+        selectedAccountId = isUsableAccountId(id) ? id : nil
         sessionManager.updateRequestContext(
             tenantId: tenantId,
             accountId: selectedAccountId

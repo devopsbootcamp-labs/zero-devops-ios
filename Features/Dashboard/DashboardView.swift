@@ -26,7 +26,7 @@ struct DashboardView: View {
 
                 // KPI row
                 LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
-                    KpiCard(label: "Deployments",    value: "\(vm.deployments.count)",                      icon: "server.rack",       color: .blue)
+                    KpiCard(label: "Deployments",    value: "\(vm.overview?.resolvedTotalDeployments() ?? vm.deployments.count)", icon: "server.rack",       color: .blue)
                     KpiCard(label: "Drift Issues",   value: "\(vm.posture?.driftedCount ?? 0)",              icon: "ant",               color: .orange)
                     KpiCard(label: "Monthly Cost",   value: String(format: "$%.0f", vm.costSummary?.totalCostUsd ?? 0), icon: "dollarsign.circle", color: .green)
                     KpiCard(label: "Success Rate",   value: String(format: "%.0f%%", (vm.overview?.successRate ?? 0) * 100), icon: "checkmark.seal", color: .teal)

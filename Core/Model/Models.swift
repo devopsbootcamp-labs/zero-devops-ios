@@ -18,14 +18,33 @@ struct CloudAccount: Codable, Identifiable, Hashable {
     let status:           String?
     let tenantId:         String?
 
+    private func normalizedIdentifier(_ candidates: [String?]) -> String? {
+        candidates.first { candidate in
+            guard let value = candidate?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else {
+                return false
+            }
+            if value.caseInsensitiveCompare("unknown") == .orderedSame { return false }
+            if value.lowercased().hasSuffix(":unknown") { return false }
+            return true
+        }?.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    var requestScopeId: String? {
+        normalizedIdentifier([cloudAccountId, id, accountId, externalAccountId])
+    }
+
+    var requestAccountId: String? {
+        normalizedIdentifier([accountId, externalAccountId, cloudAccountId, id])
+    }
+
     var resolvedScopeId: String {
-        cloudAccountId ?? id ?? accountId ?? externalAccountId ?? UUID().uuidString
+        requestScopeId ?? stableId
     }
     var resolvedAccountId: String {
-        accountId ?? cloudAccountId ?? id ?? externalAccountId ?? UUID().uuidString
+        requestAccountId ?? stableId
     }
     var resolvedName: String {
-        cloudAccountName ?? displayName ?? name ?? resolvedScopeId
+        cloudAccountName ?? displayName ?? name ?? requestAccountId ?? stableId
     }
     var resolvedProvider: String {
         provider ?? cloudProvider ?? "Unknown"
@@ -35,10 +54,15 @@ struct CloudAccount: Codable, Identifiable, Hashable {
     }
 
     // Identifiable conformance
-    var stableId: String { resolvedScopeId }
+    var stableId: String {
+        requestScopeId
+            ?? requestAccountId
+            ?? normalizedIdentifier([name, displayName, cloudAccountName])
+            ?? "unscoped-account"
+    }
     // Hashable / Equatable by scope ID
-    func hash(into hasher: inout Hasher) { hasher.combine(resolvedScopeId) }
-    static func == (l: Self, r: Self) -> Bool { l.resolvedScopeId == r.resolvedScopeId }
+    func hash(into hasher: inout Hasher) { hasher.combine(stableId) }
+    static func == (l: Self, r: Self) -> Bool { l.stableId == r.stableId }
 }
 
 struct CloudAccountsResponse: Decodable {
@@ -59,6 +83,7 @@ struct Deployment: Codable, Identifiable {
     let id:            String
     let name:          String?
     let displayName:   String?
+    let deploymentName: String?
     let environment:   String?
     let status:        String?
     let driftStatus:   String?
@@ -70,8 +95,25 @@ struct Deployment: Codable, Identifiable {
     let updatedAt:     Date?
     let accountId:     String?
     let cloudAccountId: String?
+    let tenantId:      String?
+    let params:        [String: String]?
 
-    var resolvedName: String { name ?? displayName ?? id }
+    var resolvedAccountId: String? {
+        accountId
+            ?? cloudAccountId
+            ?? params?["cloud_account_id"]
+            ?? params?["account_id"]
+    }
+
+    var resolvedName: String {
+        name
+            ?? deploymentName
+            ?? displayName
+            ?? params?["name"]
+            ?? params?["deployment_name"]
+            ?? blueprintId
+            ?? id
+    }
 }
 
 struct DeploymentPlan: Codable {
@@ -97,6 +139,7 @@ struct DeploymentLog: Codable, Identifiable {
 // MARK: - Drift
 
 struct DriftPosture: Codable {
+    let health:                  String?
     let totalDeploymentsChecked: Int?
     let driftedCount:            Int?
     let cleanCount:              Int?
@@ -105,7 +148,7 @@ struct DriftPosture: Codable {
     let healthStatus:            String?
 
     var healthLabel: String {
-        healthStatus?.capitalized ?? (driftedCount == 0 ? "Clean" : "Drifted")
+        health?.capitalized ?? healthStatus?.capitalized ?? (driftedCount == 0 ? "Clean" : "Drifted")
     }
 }
 
@@ -134,14 +177,77 @@ struct DriftJobRequest: Encodable {
 
 struct AnalyticsOverview: Codable {
     let totalDeployments:          Int?
+    let deploymentsTotal:          Int?
+    let deploymentCount:           Int?
     let succeeded:                 Int?
+    let deploymentsSucceeded:      Int?
     let failed:                    Int?
+    let deploymentsFailed:         Int?
     let driftIssues:               Int?
     let successRate:               Double?
+    let deployFrequency:           Double?
+    let currentActiveResources:    Int?
     let avgDuration:               Double?
+    let avgDurationSeconds:        Double?
     let p95Duration:               Double?
+    let p95DurationSeconds:        Double?
     let monthlyCostEstimateSum:    Double?
     let activeResources:           Int?
+
+    struct DailyTrendPoint: Codable, Identifiable {
+        let id = UUID()
+        let day: String?
+        let date: String?
+        let total: Int?
+        let succeeded: Int?
+        let failed: Int?
+        let avgDuration: Double?
+
+        enum CodingKeys: String, CodingKey {
+            case day, date, total, succeeded, failed, avgDuration
+        }
+
+        var resolvedDay: String { day ?? date ?? "" }
+    }
+
+    struct PeriodValue: Codable {
+        let current: Double?
+        let previous: Double?
+        let delta: Double?
+        let deltaPct: Double?
+    }
+
+    struct PeriodComparison: Codable {
+        let successRate: PeriodValue?
+        let deploymentFreq: PeriodValue?
+    }
+
+    let dailyTrend:                [DailyTrendPoint]?
+    let periodComparison:          PeriodComparison?
+
+    func resolvedTotalDeployments() -> Int {
+        totalDeployments ?? deploymentsTotal ?? deploymentCount ?? 0
+    }
+
+    func resolvedSucceeded() -> Int {
+        succeeded ?? deploymentsSucceeded ?? 0
+    }
+
+    func resolvedFailed() -> Int {
+        failed ?? deploymentsFailed ?? 0
+    }
+
+    func resolvedAvgDuration() -> Double {
+        avgDurationSeconds ?? avgDuration ?? 0
+    }
+
+    func resolvedP95Duration() -> Double {
+        p95DurationSeconds ?? p95Duration ?? 0
+    }
+
+    func resolvedActiveResources() -> Int {
+        activeResources ?? currentActiveResources ?? 0
+    }
 }
 
 struct AnalyticsPerformance: Codable {

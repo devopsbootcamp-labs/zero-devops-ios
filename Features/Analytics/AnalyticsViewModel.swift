@@ -34,9 +34,13 @@ final class AnalyticsViewModel: ObservableObject {
         async let intl = tryGet(AnalyticsIntelligence.self, path: "api/v1/analytics/intelligence?range=\(range)")
         async let acc  = loadAccounts()
 
-        overview     = await ov
-        performance  = await perf
-        trends       = await tr
+        let overviewValue = await ov
+        let performanceValue = await perf
+        let trendValues = await tr
+
+        overview     = overviewValue
+        performance  = performanceValue ?? derivePerformance(overviewValue)
+        trends       = trendValues.isEmpty ? deriveTrends(overviewValue) : trendValues
         providers    = await prov
         self.blueprints = await bp
         failures     = await fail
@@ -61,5 +65,32 @@ final class AnalyticsViewModel: ObservableObject {
         if let list: [CloudAccount] = try? await api.get("api/v1/cloud-accounts") { return list }
         if let resp: CloudAccountsResponse = try? await api.get("api/v1/cloud-accounts") { return resp.resolved }
         return []
+    }
+
+    private func deriveTrends(_ overview: AnalyticsOverview?) -> [AnalyticsTrend] {
+        guard let dailyTrend = overview?.dailyTrend, !dailyTrend.isEmpty else { return [] }
+        return dailyTrend.compactMap { point in
+            let date = point.resolvedDay
+            guard !date.isEmpty else { return nil }
+            return AnalyticsTrend(
+                date: date,
+                deployments: point.total,
+                successes: point.succeeded,
+                failures: point.failed
+            )
+        }
+    }
+
+    private func derivePerformance(_ overview: AnalyticsOverview?) -> AnalyticsPerformance? {
+        guard let overview else { return nil }
+        let frequency = overview.deployFrequency ?? overview.periodComparison?.deploymentFreq?.current
+        let success = overview.successRate ?? overview.periodComparison?.successRate?.current
+        return AnalyticsPerformance(
+            deploymentFrequency: frequency,
+            leadTimeSeconds: overview.resolvedAvgDuration(),
+            mttrSeconds: nil,
+            changeFailureRate: success.map { 1.0 - min(max($0, 0.0), 1.0) },
+            successRate: success
+        )
     }
 }

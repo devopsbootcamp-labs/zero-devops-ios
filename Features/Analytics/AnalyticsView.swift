@@ -29,6 +29,23 @@ struct AnalyticsView: View {
                         DoraSection(perf: perf)
                     }
 
+                    if !vm.trends.isEmpty {
+                        GroupBox(label: Label("Deployment Trends", systemImage: "chart.line.uptrend.xyaxis")) {
+                            ForEach(vm.trends.prefix(7)) { trend in
+                                HStack {
+                                    Text(trend.date)
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                    Spacer()
+                                    Text("\(trend.deployments ?? 0) deploys")
+                                        .font(.caption.weight(.medium))
+                                }
+                                Divider()
+                            }
+                        }
+                        .padding(.horizontal)
+                    }
+
                     // Providers
                     if !vm.providers.isEmpty {
                         GroupBox(label: Label("By Provider", systemImage: "cloud")) {
@@ -40,6 +57,47 @@ struct AnalyticsView: View {
                                         Text("\(p.deploymentCount ?? 0) deployments").font(.caption)
                                         Text(String(format: "$%.0f/mo", p.monthlyCost ?? 0)).font(.caption).foregroundColor(.green)
                                     }
+                                }
+                                Divider()
+                            }
+                        }
+                        .padding(.horizontal)
+                    }
+
+                    if !vm.accounts.isEmpty {
+                        GroupBox(label: Label("Accounts", systemImage: "building.2")) {
+                            ForEach(vm.accounts.prefix(8), id: \.stableId) { account in
+                                HStack {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(account.resolvedName).font(.subheadline.weight(.medium))
+                                        Text(account.resolvedProvider + (account.resolvedRegion.isEmpty ? "" : "  ·  \(account.resolvedRegion)"))
+                                            .font(.caption)
+                                            .foregroundColor(.secondary)
+                                    }
+                                    Spacer()
+                                    Text(account.requestScopeId ?? account.stableId)
+                                        .font(.caption2)
+                                        .foregroundColor(.secondary)
+                                }
+                                Divider()
+                            }
+                        }
+                        .padding(.horizontal)
+                    }
+
+                    if !vm.blueprints.isEmpty {
+                        GroupBox(label: Label("Blueprint Usage", systemImage: "square.stack.3d.up")) {
+                            ForEach(vm.blueprints.prefix(6)) { blueprint in
+                                HStack {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(blueprint.blueprintName).font(.subheadline.weight(.medium))
+                                        Text(blueprint.cloudProvider ?? "Unknown provider")
+                                            .font(.caption)
+                                            .foregroundColor(.secondary)
+                                    }
+                                    Spacer()
+                                    Text("\(blueprint.deploymentCount ?? 0)")
+                                        .font(.subheadline.bold())
                                 }
                                 Divider()
                             }
@@ -80,12 +138,54 @@ struct AnalyticsView: View {
                         }
                         .padding(.horizontal)
                     }
+
+                    if !vm.activity.isEmpty {
+                        GroupBox(label: Label("Recent Activity", systemImage: "clock.arrow.circlepath")) {
+                            ForEach(vm.activity.prefix(8)) { event in
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(event.message ?? event.type ?? "Activity")
+                                        .font(.subheadline.weight(.medium))
+                                    HStack(spacing: 8) {
+                                        if let type = event.type {
+                                            Text(type)
+                                                .font(.caption2)
+                                                .foregroundColor(.secondary)
+                                        }
+                                        if let deploymentId = event.deploymentId {
+                                            Text(deploymentId)
+                                                .font(.caption2)
+                                                .foregroundColor(.secondary)
+                                                .lineLimit(1)
+                                        }
+                                    }
+                                }
+                                Divider()
+                            }
+                        }
+                        .padding(.horizontal)
+                    }
                 }
                 .padding(.vertical)
             }
             .navigationTitle("Analytics")
             .overlay {
                 if vm.isLoading && vm.overview == nil { ProgressView("Loading…") }
+                if !vm.isLoading,
+                   vm.overview == nil,
+                   vm.providers.isEmpty,
+                   vm.trends.isEmpty,
+                   let error = vm.error {
+                    VStack(spacing: 8) {
+                        Image(systemName: "chart.bar.xaxis")
+                            .font(.title2)
+                            .foregroundColor(.secondary)
+                        Text(error)
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                            .multilineTextAlignment(.center)
+                    }
+                    .padding(16)
+                }
             }
             .task { await vm.load() }
             .refreshable { await vm.load() }
@@ -113,12 +213,12 @@ private struct OverviewSection: View {
     var body: some View {
         GroupBox(label: Label("Overview", systemImage: "chart.bar")) {
             LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
-                MetricCell(label: "Total Deployments", value: "\(ov.totalDeployments ?? 0)")
+                MetricCell(label: "Total Deployments", value: "\(ov.resolvedTotalDeployments())")
                 MetricCell(label: "Success Rate",      value: String(format: "%.0f%%", (ov.successRate ?? 0) * 100))
-                MetricCell(label: "Failed",            value: "\(ov.failed ?? 0)")
+                MetricCell(label: "Failed",            value: "\(ov.resolvedFailed())")
                 MetricCell(label: "Drift Issues",      value: "\(ov.driftIssues ?? 0)")
                 MetricCell(label: "Monthly Cost",      value: String(format: "$%.0f", ov.monthlyCostEstimateSum ?? 0))
-                MetricCell(label: "Active Resources",  value: "\(ov.activeResources ?? 0)")
+                MetricCell(label: "Active Resources",  value: "\(ov.resolvedActiveResources())")
             }
         }
         .padding(.horizontal)

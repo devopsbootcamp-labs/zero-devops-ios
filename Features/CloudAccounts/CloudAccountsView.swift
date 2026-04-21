@@ -32,13 +32,13 @@ struct CloudAccountsView: View {
                 }
                 .buttonStyle(.plain)
 
-                ForEach(vm.accounts, id: \.resolvedScopeId) { account in
+                ForEach(vm.accounts, id: \.stableId) { account in
                     Button {
-                        container.selectAccount(account.resolvedScopeId)
+                        container.selectAccount(account.requestScopeId)
                     } label: {
                         AccountRow(
                             account:    account,
-                            isSelected: container.selectedAccountId == account.resolvedScopeId
+                            isSelected: container.selectedAccountId == account.requestScopeId
                         )
                     }
                     .buttonStyle(.plain)
@@ -87,7 +87,7 @@ private struct AccountRow: View {
                 Text(account.resolvedProvider + (account.resolvedRegion.isEmpty ? "" : "  ·  \(account.resolvedRegion)"))
                     .font(.caption)
                     .foregroundColor(.secondary)
-                Text(account.resolvedScopeId)
+                Text(account.requestScopeId ?? account.resolvedAccountId)
                     .font(.caption2)
                     .foregroundColor(.secondary)
                     .lineLimit(1).truncationMode(.middle)
