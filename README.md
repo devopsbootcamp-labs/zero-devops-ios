@@ -1,6 +1,6 @@
 # Zero DevOps iOS
 
-iOS companion to the Zero DevOps Android app — SwiftUI, AppAuth OIDC/PKCE, Keychain token storage.
+iOS companion to the Zero DevOps Android app — SwiftUI, native OIDC/PKCE web auth, Keychain token storage.
 
 ## Features
 
@@ -23,7 +23,7 @@ Detail screens: `DeploymentDetailView`, `ResourcesView`, `ResourceDetailView`, `
 | Layer | Technology |
 |-------|-----------|
 | UI | SwiftUI (iOS 16+) |
-| Auth | [AppAuth-iOS](https://github.com/openid/AppAuth-iOS) — OIDC PKCE |
+| Auth | AuthenticationServices (`ASWebAuthenticationSession`) + OIDC PKCE |
 | Token storage | iOS Keychain (Security framework) |
 | Networking | URLSession + async/await |
 | Project format | Native Xcode project (`ZeroDevOps.xcodeproj`) |
@@ -53,9 +53,9 @@ In Xcode:
 3. Choose your iOS device
 4. ▶ Run
 
-### SPM dependencies
+### Dependencies
 
-The project already declares `AppAuth-iOS` in the native Xcode project. Xcode fetches it automatically on first open.
+No external package is required for auth; the app uses native iOS frameworks.
 
 ---
 
@@ -85,7 +85,7 @@ App/
 └── AppConfig.swift               # OIDC / API constants
 Core/
 ├── Auth/
-│   ├── OidcAuthManager.swift     # AppAuth PKCE flow
+│   ├── OidcAuthManager.swift     # Native web auth + OIDC PKCE flow
 │   ├── AuthSessionManager.swift  # Token expiry + session
 │   ├── TokenStore.swift          # Keychain persistence
 │   └── TokenBundle.swift         # Token model

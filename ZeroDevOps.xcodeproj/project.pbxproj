@@ -38,7 +38,6 @@ A1000000000000000000001C /* ProfileViewModel.swift in Sources */ = {isa = PBXBui
 A1000000000000000000001D /* WorkspaceViewModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000000000000000000001D /* WorkspaceViewModels.swift */; };
 A1000000000000000000001E /* WorkspaceViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000000000000000000001E /* WorkspaceViews.swift */; };
 A1000000000000000000001F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B1000000000000000000001F /* Assets.xcassets */; };
-A10000000000000000000020 /* AppAuth in Frameworks */ = {isa = PBXBuildFile; productRef = E10000000000000000000001 /* AppAuth */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -82,7 +81,6 @@ C10000000000000000000001 /* Frameworks */ = {
 isa = PBXFrameworksBuildPhase;
 buildActionMask = 2147483647;
 files = (
-A10000000000000000000020 /* AppAuth in Frameworks */,
 );
 runOnlyForDeploymentPostprocessing = 0;
 };
@@ -169,7 +167,6 @@ dependencies = (
 );
 name = ZeroDevOps;
 packageProductDependencies = (
-E10000000000000000000001 /* AppAuth */,
 );
 productName = ZeroDevOps;
 productReference = B10000000000000000000031 /* ZeroDevOps.app */;
@@ -200,7 +197,6 @@ Base,
 );
 mainGroup = D10000000000000000000001;
 packageReferences = (
-E10000000000000000000002 /* XCRemoteSwiftPackageReference "AppAuth-iOS" */,
 );
 productRefGroup = D10000000000000000000004 /* Products */;
 projectDirPath = "";
@@ -354,24 +350,6 @@ defaultConfigurationName = Release;
 };
 /* End XCConfigurationList section */
 
-/* Begin XCRemoteSwiftPackageReference section */
-E10000000000000000000002 /* XCRemoteSwiftPackageReference "AppAuth-iOS" */ = {
-isa = XCRemoteSwiftPackageReference;
-repositoryURL = "https://github.com/openid/AppAuth-iOS";
-requirement = {
-kind = upToNextMajorVersion;
-minimumVersion = 1.7.0;
-};
-};
-/* End XCRemoteSwiftPackageReference section */
-
-/* Begin XCSwiftPackageProductDependency section */
-E10000000000000000000001 /* AppAuth */ = {
-isa = XCSwiftPackageProductDependency;
-package = E10000000000000000000002 /* XCRemoteSwiftPackageReference "AppAuth-iOS" */;
-productName = AppAuth;
-};
-/* End XCSwiftPackageProductDependency section */
 };
 rootObject = D10000000000000000000011 /* Project object */;
 }

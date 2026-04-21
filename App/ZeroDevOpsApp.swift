@@ -14,7 +14,7 @@ struct ZeroDevOpsApp: App {
             ContentView()
                 .environmentObject(container)
                 .onOpenURL { url in
-                    // Resume the pending AppAuth browser flow on callback.
+                    // Keep callback hook for auth redirects.
                     _ = OidcAuthManager.shared.resumeExternalUserAgentFlow(with: url)
                 }
         }

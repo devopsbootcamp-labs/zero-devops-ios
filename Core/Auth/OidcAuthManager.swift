@@ -1,7 +1,8 @@
 import Foundation
 
-#if canImport(AppAuth) && canImport(UIKit)
-import AppAuth
+#if canImport(AuthenticationServices) && canImport(UIKit)
+import AuthenticationServices
+import CryptoKit
 import UIKit
 #endif
 
@@ -17,126 +18,223 @@ enum AuthError: LocalizedError {
     }
 }
 
-/// OIDC / PKCE auth manager using AppAuth-iOS — mirrors Android OidcAuthManager.
+/// OIDC / PKCE auth manager using native iOS web authentication.
 final class OidcAuthManager {
 
     static let shared = OidcAuthManager()
 
-#if canImport(AppAuth) && canImport(UIKit)
-    private var currentFlow: OIDExternalUserAgentSession?
+#if canImport(AuthenticationServices) && canImport(UIKit)
+    private var webSession: ASWebAuthenticationSession?
 
-    /// Resume the pending AppAuth browser flow with the callback URL.
     @discardableResult
     func resumeExternalUserAgentFlow(with url: URL) -> Bool {
-        guard let flow = currentFlow else { return false }
-        let resumed = flow.resumeExternalUserAgentFlow(with: url)
-        if resumed {
-            currentFlow = nil
-        }
-        return resumed
+        _ = url
+        return false
     }
 
-    private var serviceConfig: OIDServiceConfiguration {
-        OIDServiceConfiguration(
-            authorizationEndpoint: URL(string: "\(AppConfig.oidcIssuer)/protocol/openid-connect/auth")!,
-            tokenEndpoint:         URL(string: "\(AppConfig.oidcIssuer)/protocol/openid-connect/token")!
-        )
+    private var authorizationEndpoint: URL {
+        URL(string: "\(AppConfig.oidcIssuer)/protocol/openid-connect/auth")!
+    }
+
+    private var tokenEndpoint: URL {
+        URL(string: "\(AppConfig.oidcIssuer)/protocol/openid-connect/token")!
+    }
+
+    private func callbackScheme() -> String {
+        URL(string: AppConfig.oidcRedirectURI)?.scheme ?? ""
     }
 
     // MARK: - Authorization
 
     @MainActor
     func startAuth(from viewController: UIViewController) async throws -> TokenBundle {
-        let request = OIDAuthorizationRequest(
-            configuration:        serviceConfig,
-            clientId:             AppConfig.oidcClientId,
-            clientSecret:         nil,
-            scopes:               AppConfig.oidcScopes,
-            redirectURL:          URL(string: AppConfig.oidcRedirectURI)!,
-            responseType:         OIDResponseTypeCode,
-            additionalParameters: nil
-        )
+        let state = Self.randomURLSafeString(length: 24)
+        let codeVerifier = Self.randomURLSafeString(length: 64)
+        let codeChallenge = Self.codeChallenge(from: codeVerifier)
 
-        return try await withCheckedThrowingContinuation { continuation in
-            self.currentFlow = OIDAuthState.authState(
-                byPresenting: request,
-                presenting:   viewController
-            ) { authState, error in
-                if let error = error {
+        var comps = URLComponents(url: authorizationEndpoint, resolvingAgainstBaseURL: false)
+        comps?.queryItems = [
+            URLQueryItem(name: "client_id", value: AppConfig.oidcClientId),
+            URLQueryItem(name: "response_type", value: "code"),
+            URLQueryItem(name: "redirect_uri", value: AppConfig.oidcRedirectURI),
+            URLQueryItem(name: "scope", value: AppConfig.oidcScopes.joined(separator: " ")),
+            URLQueryItem(name: "state", value: state),
+            URLQueryItem(name: "code_challenge", value: codeChallenge),
+            URLQueryItem(name: "code_challenge_method", value: "S256")
+        ]
+        guard let authURL = comps?.url else {
+            throw AuthError.invalidTokenResponse
+        }
+
+        let callbackURL = try await performWebLogin(
+            authURL: authURL,
+            callbackScheme: callbackScheme(),
+            viewController: viewController
+        )
+        guard
+            let callbackComps = URLComponents(url: callbackURL, resolvingAgainstBaseURL: false),
+            callbackComps.queryItems?.first(where: { $0.name == "state" })?.value == state,
+            let code = callbackComps.queryItems?.first(where: { $0.name == "code" })?.value
+        else {
+            throw AuthError.invalidTokenResponse
+        }
+
+        let token = try await exchangeAuthorizationCode(code: code, codeVerifier: codeVerifier)
+        let expiresAt = Date().addingTimeInterval(TimeInterval(max(token.expiresIn ?? 60, 60)))
+        let claims = Self.decodeJwtClaims(token.idToken ?? token.accessToken)
+
+        return TokenBundle(
+            accessToken: token.accessToken,
+            refreshToken: token.refreshToken,
+            idToken: token.idToken,
+            expiresAt: expiresAt,
+            tenantId: claims["tenant_id"] as? String,
+            accountId: claims["account_id"] as? String,
+            cloudAccountId: claims["cloud_account_id"] as? String
+        )
+    }
+
+    private func performWebLogin(
+        authURL: URL,
+        callbackScheme: String,
+        viewController: UIViewController
+    ) async throws -> URL {
+        try await withCheckedThrowingContinuation { continuation in
+            let session = ASWebAuthenticationSession(
+                url: authURL,
+                callbackURLScheme: callbackScheme
+            ) { callbackURL, error in
+                if let error {
                     continuation.resume(throwing: error)
                     return
                 }
-                guard
-                    let resp        = authState?.lastTokenResponse,
-                    let accessToken = resp.accessToken, !accessToken.isEmpty,
-                    let expiryDate  = resp.accessTokenExpirationDate
-                else {
+                guard let callbackURL else {
                     continuation.resume(throwing: AuthError.invalidTokenResponse)
                     return
                 }
-
-                let expiresAt = max(expiryDate, Date().addingTimeInterval(60))
-                let claims    = Self.decodeJwtClaims(resp.idToken ?? accessToken)
-
-                let bundle = TokenBundle(
-                    accessToken:     accessToken,
-                    refreshToken:    resp.refreshToken,
-                    idToken:         resp.idToken,
-                    expiresAt:       expiresAt,
-                    tenantId:        claims["tenant_id"]      as? String,
-                    accountId:       claims["account_id"]     as? String,
-                    cloudAccountId:  claims["cloud_account_id"] as? String
-                )
-                continuation.resume(returning: bundle)
+                continuation.resume(returning: callbackURL)
             }
+            let provider = PresentationProvider(viewController: viewController)
+            session.presentationContextProvider = provider
+            session.prefersEphemeralWebBrowserSession = false
+            self.webSession = session
+            _ = session.start()
         }
+    }
+
+    private func exchangeAuthorizationCode(code: String, codeVerifier: String) async throws -> TokenResponse {
+        var request = URLRequest(url: tokenEndpoint)
+        request.httpMethod = "POST"
+        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        request.httpBody = formBody([
+            "grant_type": "authorization_code",
+            "code": code,
+            "redirect_uri": AppConfig.oidcRedirectURI,
+            "client_id": AppConfig.oidcClientId,
+            "code_verifier": codeVerifier
+        ])
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            throw AuthError.invalidTokenResponse
+        }
+        guard let parsed = try? JSONDecoder().decode(TokenResponse.self, from: data),
+              !parsed.accessToken.isEmpty else {
+            throw AuthError.invalidTokenResponse
+        }
+        return parsed
     }
 
     // MARK: - Token Refresh
 
     func refreshToken(_ refreshToken: String, currentBundle: TokenBundle) async throws -> TokenBundle {
-        let request = OIDTokenRequest(
-            configuration:      serviceConfig,
-            grantType:          OIDGrantTypeRefreshToken,
-            authorizationCode:  nil,
-            redirectURL:        URL(string: AppConfig.oidcRedirectURI)!,
-            clientID:           AppConfig.oidcClientId,
-            clientSecret:       nil,
-            scope:              AppConfig.oidcScopes.joined(separator: " "),
-            refreshToken:       refreshToken,
-            codeVerifier:       nil,
-            additionalParameters: nil
+        var request = URLRequest(url: tokenEndpoint)
+        request.httpMethod = "POST"
+        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        request.httpBody = formBody([
+            "grant_type": "refresh_token",
+            "refresh_token": refreshToken,
+            "client_id": AppConfig.oidcClientId,
+            "scope": AppConfig.oidcScopes.joined(separator: " ")
+        ])
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            throw AuthError.invalidTokenResponse
+        }
+        guard let parsed = try? JSONDecoder().decode(TokenResponse.self, from: data),
+              !parsed.accessToken.isEmpty else {
+            throw AuthError.invalidTokenResponse
+        }
+
+        let expiresAt = Date().addingTimeInterval(TimeInterval(max(parsed.expiresIn ?? 60, 60)))
+        let claims = Self.decodeJwtClaims(parsed.idToken ?? parsed.accessToken)
+        return TokenBundle(
+            accessToken: parsed.accessToken,
+            refreshToken: parsed.refreshToken ?? refreshToken,
+            idToken: parsed.idToken ?? currentBundle.idToken,
+            expiresAt: expiresAt,
+            tenantId: claims["tenant_id"] as? String ?? currentBundle.tenantId,
+            accountId: claims["account_id"] as? String ?? currentBundle.accountId,
+            cloudAccountId: claims["cloud_account_id"] as? String ?? currentBundle.cloudAccountId
         )
+    }
 
-        return try await withCheckedThrowingContinuation { continuation in
-            OIDAuthorizationService.perform(request) { response, error in
-                if let error = error {
-                    continuation.resume(throwing: error)
-                    return
-                }
-                guard
-                    let resp        = response,
-                    let accessToken = resp.accessToken, !accessToken.isEmpty,
-                    let expiryDate  = resp.accessTokenExpirationDate
-                else {
-                    continuation.resume(throwing: AuthError.invalidTokenResponse)
-                    return
-                }
-
-                let expiresAt = max(expiryDate, Date().addingTimeInterval(60))
-                let claims    = Self.decodeJwtClaims(resp.idToken ?? accessToken)
-
-                let bundle = TokenBundle(
-                    accessToken:     accessToken,
-                    refreshToken:    resp.refreshToken ?? refreshToken,
-                    idToken:         resp.idToken ?? currentBundle.idToken,
-                    expiresAt:       expiresAt,
-                    tenantId:        claims["tenant_id"]       as? String ?? currentBundle.tenantId,
-                    accountId:       claims["account_id"]      as? String ?? currentBundle.accountId,
-                    cloudAccountId:  claims["cloud_account_id"] as? String ?? currentBundle.cloudAccountId
-                )
-                continuation.resume(returning: bundle)
+    private func formBody(_ params: [String: String]) -> Data {
+        let body = params
+            .map { key, value in
+                let k = key.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? key
+                let v = value.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? value
+                return "\(k)=\(v)"
             }
+            .joined(separator: "&")
+        return Data(body.utf8)
+    }
+
+    private static func randomURLSafeString(length: Int) -> String {
+        let charset = Array("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~")
+        return String((0..<length).compactMap { _ in charset.randomElement() })
+    }
+
+    private static func codeChallenge(from verifier: String) -> String {
+        let data = Data(verifier.utf8)
+        let digest = SHA256.hash(data: data)
+        return Data(digest).base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+    }
+
+    private struct TokenResponse: Decodable {
+        let accessToken: String
+        let refreshToken: String?
+        let idToken: String?
+        let expiresIn: Int?
+
+        enum CodingKeys: String, CodingKey {
+            case accessToken = "access_token"
+            case refreshToken = "refresh_token"
+            case idToken = "id_token"
+            case expiresIn = "expires_in"
+        }
+    }
+
+    private final class PresentationProvider: NSObject, ASWebAuthenticationPresentationContextProviding {
+        private weak var viewController: UIViewController?
+
+        init(viewController: UIViewController) {
+            self.viewController = viewController
+        }
+
+        func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
+            _ = session
+            if let window = viewController?.view.window {
+                return window
+            }
+            return UIApplication.shared.connectedScenes
+                .compactMap { $0 as? UIWindowScene }
+                .flatMap { $0.windows }
+                .first { $0.isKeyWindow } ?? ASPresentationAnchor()
         }
     }
 #else

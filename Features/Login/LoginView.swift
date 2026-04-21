@@ -100,7 +100,7 @@ struct LoginView: View {
     }
 }
 
-// MARK: - UIViewControllerRepresentable bridge for AppAuth
+// MARK: - UIViewControllerRepresentable bridge for web auth presentation context
 
 #if canImport(UIKit)
 struct AuthViewController: UIViewControllerRepresentable {
