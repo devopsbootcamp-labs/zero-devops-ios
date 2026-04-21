@@ -103,22 +103,18 @@ private struct AccountRow: View {
 private struct ProviderIcon: View {
     let provider: String
     var icon: String {
-        switch provider.lowercased() {
-        case _ where provider.lowercased().contains("aws"):   return "cloud.fill"
-        case _ where provider.lowercased().contains("azure"): return "cloud.fill"
-        case _ where provider.lowercased().contains("gcp"),
-             _ where provider.lowercased().contains("google"): return "cloud.fill"
-        default: return "server.rack"
+        let p = provider.lowercased()
+        if p.contains("aws") || p.contains("azure") || p.contains("gcp") || p.contains("google") {
+            return "cloud.fill"
         }
+        return "server.rack"
     }
     var color: Color {
-        switch provider.lowercased() {
-        case _ where provider.lowercased().contains("aws"):    return .orange
-        case _ where provider.lowercased().contains("azure"):  return .blue
-        case _ where provider.lowercased().contains("gcp"),
-             _ where provider.lowercased().contains("google"): return .red
-        default: return .gray
-        }
+        let p = provider.lowercased()
+        if p.contains("aws") { return .orange }
+        if p.contains("azure") { return .blue }
+        if p.contains("gcp") || p.contains("google") { return .red }
+        return .gray
     }
     var body: some View {
         Image(systemName: icon)

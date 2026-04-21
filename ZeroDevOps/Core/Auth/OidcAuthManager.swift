@@ -1,6 +1,9 @@
 import Foundation
+
+#if canImport(AppAuth) && canImport(UIKit)
 import AppAuth
 import UIKit
+#endif
 
 enum AuthError: LocalizedError {
     case invalidTokenResponse
@@ -19,6 +22,7 @@ final class OidcAuthManager {
 
     static let shared = OidcAuthManager()
 
+#if canImport(AppAuth) && canImport(UIKit)
     private var currentFlow: OIDExternalUserAgentSession?
 
     /// Resume the pending AppAuth browser flow with the callback URL.
@@ -135,6 +139,25 @@ final class OidcAuthManager {
             }
         }
     }
+#else
+    @discardableResult
+    func resumeExternalUserAgentFlow(with url: URL) -> Bool {
+        _ = url
+        return false
+    }
+
+    @MainActor
+    func startAuth(from viewController: AnyObject) async throws -> TokenBundle {
+        _ = viewController
+        throw AuthError.notAuthenticated
+    }
+
+    func refreshToken(_ refreshToken: String, currentBundle: TokenBundle) async throws -> TokenBundle {
+        _ = refreshToken
+        _ = currentBundle
+        throw AuthError.notAuthenticated
+    }
+#endif
 
     // MARK: - JWT Helpers
 

@@ -1,5 +1,9 @@
 import SwiftUI
 
+#if canImport(UIKit)
+import UIKit
+#endif
+
 struct LoginView: View {
 
     @EnvironmentObject private var container: AppContainer
@@ -80,16 +84,25 @@ struct LoginView: View {
             }
         }
         .sheet(isPresented: $showingAuthVC) {
+#if canImport(UIKit)
             AuthViewController { viewController in
                 container.login(from: viewController)
                 showingAuthVC = false
             }
+#else
+            VStack(spacing: 16) {
+                Text("SSO login is only available with iOS UIKit runtime.")
+                Button("Close") { showingAuthVC = false }
+            }
+            .padding(24)
+#endif
         }
     }
 }
 
 // MARK: - UIViewControllerRepresentable bridge for AppAuth
 
+#if canImport(UIKit)
 struct AuthViewController: UIViewControllerRepresentable {
     let onPresent: (UIViewController) -> Void
 
@@ -114,3 +127,4 @@ struct AuthViewController: UIViewControllerRepresentable {
         var didTrigger = false
     }
 }
+#endif

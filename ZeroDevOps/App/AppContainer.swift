@@ -1,6 +1,12 @@
 import Foundation
 import Combine
+
+#if canImport(UIKit)
 import UIKit
+typealias PlatformViewController = UIViewController
+#else
+typealias PlatformViewController = AnyObject
+#endif
 
 /// Central dependency / session container — mirrors Android AppContainer.
 @MainActor
@@ -32,7 +38,7 @@ final class AppContainer: ObservableObject {
 
     // MARK: - Login
 
-    func login(from viewController: UIViewController) {
+    func login(from viewController: PlatformViewController) {
         guard !isLoggingIn else { return }
         isLoggingIn = true
         loginError  = nil
