@@ -87,7 +87,7 @@ final class OidcAuthManager {
         if let errorCode = callbackComps.queryItems?.first(where: { $0.name == "error" })?.value {
             let desc = callbackComps.queryItems?.first(where: { $0.name == "error_description" })?.value
                 ?? errorCode
-            throw AuthError.callbackError(desc)
+            throw AuthError.callbackError(normalizeCallbackError(desc))
         }
 
         guard callbackComps.queryItems?.first(where: { $0.name == "state" })?.value == state,
@@ -237,6 +237,10 @@ final class OidcAuthManager {
             if let detail = desc ?? err, !detail.isEmpty { return detail }
         }
         return String(data: data, encoding: .utf8)?.prefix(200).description ?? "Unknown error"
+    }
+
+    private func normalizeCallbackError(_ value: String) -> String {
+        value.replacingOccurrences(of: "+", with: " ")
     }
 
     private static func randomURLSafeString(length: Int) -> String {
