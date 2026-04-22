@@ -91,6 +91,42 @@ final class APIClient {
         let _: EmptyResponse = try await perform(method: "DELETE", path: path, body: Optional<EmptyBody>.none)
     }
 
+    /// Mirrors Android `fetchDeploymentsScoped`: prefer account-scoped endpoints, then fallback.
+    func fetchDeploymentsScoped(accountId: String?, limit: Int = 500) async throws -> [Deployment] {
+        let scoped = accountId?.trimmingCharacters(in: .whitespacesAndNewlines)
+            .flatMap { $0.isEmpty ? nil : $0 }
+
+        var lastError: Error?
+        if let scoped {
+            let scopedPaths = [
+                "api/v1/cloud-accounts/\(scoped)/deployments?limit=\(limit)",
+                "api/v1/deployments?limit=\(limit)&cloud_account_id=\(scoped)",
+                "api/v1/deployments?cloud_account_id=\(scoped)&limit=\(limit)",
+            ]
+            for path in scopedPaths {
+                do {
+                    return try await get(path)
+                } catch {
+                    lastError = error
+                }
+            }
+        }
+
+        let tenantPaths = [
+            "api/v1/deployments?limit=\(limit)",
+            "api/v1/deployments",
+        ]
+        for path in tenantPaths {
+            do {
+                return try await get(path)
+            } catch {
+                lastError = error
+            }
+        }
+
+        throw lastError ?? APIError.invalidResponse
+    }
+
     // MARK: - Core
 
     private func perform<B: Encodable, T: Decodable>(method: String, path: String, body: B?) async throws -> T {

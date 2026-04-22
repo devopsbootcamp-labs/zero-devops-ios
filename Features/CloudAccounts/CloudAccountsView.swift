@@ -34,17 +34,16 @@ struct CloudAccountsView: View {
 
             ForEach(vm.accounts, id: \.stableId) { account in
                 Button {
-                    guard let scope = account.requestScopeId else { return }
+                    let scope = account.resolvedScopeId
                     container.selectAccount(scope)
                     navPath.append(AppRoute.accountWorkspace(accountId: scope, accountName: account.resolvedName))
                 } label: {
                     AccountRow(
                         account:    account,
-                        isSelected: container.selectedAccountId == account.requestScopeId
+                        isSelected: container.selectedAccountId == account.resolvedScopeId
                     )
                 }
                 .buttonStyle(.plain)
-                .disabled(account.requestScopeId == nil)
             }
         }
         .navigationTitle("Cloud Accounts")

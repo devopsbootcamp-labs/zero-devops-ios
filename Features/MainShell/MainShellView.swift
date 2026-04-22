@@ -100,12 +100,12 @@ private final class ChatViewModel: ObservableObject {
         messages.append(ChatMessage(role: .user, text: text, createdAt: Date()))
 
         let body = ChatRequest(message: text, context: "zero-devops-ios")
-        let reply = await requestReply(body)
+        let result = await requestReply(body)
 
-        if let reply, !reply.isEmpty {
+        if let reply = result.reply, !reply.isEmpty {
             messages.append(ChatMessage(role: .assistant, text: reply, createdAt: Date()))
         } else {
-            error = "Chat service is unavailable right now."
+            error = result.error ?? "Chat service is unavailable right now."
             messages.append(ChatMessage(
                 role: .assistant,
                 text: "I could not reach the chat service. Please try again in a moment.",
@@ -115,17 +115,31 @@ private final class ChatViewModel: ObservableObject {
         isSending = false
     }
 
-    private func requestReply(_ body: ChatRequest) async -> String? {
-        if let r: ChatResponse = try? await api.post("api/v1/chat", body: body), !r.resolvedText.isEmpty {
-            return r.resolvedText
+    private func requestReply(_ body: ChatRequest) async -> (reply: String?, error: String?) {
+        var lastError: Error?
+
+        do {
+            let r: ChatResponse = try await api.post("api/v1/chat", body: body)
+            if !r.resolvedText.isEmpty { return (r.resolvedText, nil) }
+        } catch {
+            lastError = error
         }
-        if let r: ChatResponse = try? await api.post("api/v1/ai/chat", body: body), !r.resolvedText.isEmpty {
-            return r.resolvedText
+
+        do {
+            let r: ChatResponse = try await api.post("api/v1/ai/chat", body: body)
+            if !r.resolvedText.isEmpty { return (r.resolvedText, nil) }
+        } catch {
+            lastError = error
         }
-        if let r: ChatResponse = try? await api.post("api/v1/assistant/chat", body: body), !r.resolvedText.isEmpty {
-            return r.resolvedText
+
+        do {
+            let r: ChatResponse = try await api.post("api/v1/assistant/chat", body: body)
+            if !r.resolvedText.isEmpty { return (r.resolvedText, nil) }
+        } catch {
+            lastError = error
         }
-        return nil
+
+        return (nil, lastError?.localizedDescription)
     }
 }
 

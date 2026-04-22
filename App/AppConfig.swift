@@ -7,7 +7,6 @@ enum AppConfig {
     static let oidcClientId        = "zero-devops-mobile"
     static let oidcRedirectURI     = "com.devopsbootcamp.app://callback"
     static let oidcPostLogoutURI   = "com.devopsbootcamp.app://logout"
-    // "roles" scope tells Keycloak to include resource_access (client role claims) in the JWT.
-    // Without it, RBAC checks like deployments.read in cloudeprints-api.roles will 403.
+    // Include roles scope so Keycloak can include client role claims in access tokens when configured.
     static let oidcScopes          = ["openid", "profile", "email", "offline_access", "roles"]
 }

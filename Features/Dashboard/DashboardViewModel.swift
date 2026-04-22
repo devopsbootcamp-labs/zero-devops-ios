@@ -8,6 +8,7 @@ final class DashboardViewModel: ObservableObject {
     @Published var posture:       DriftPosture?
     @Published var overview:      AnalyticsOverview?
     @Published var costSummary:   CostSummary?
+    @Published var activeResources = 0
     @Published var isLoading      = false
     @Published var error:         String?
 
@@ -22,6 +23,7 @@ final class DashboardViewModel: ObservableObject {
         async let posture = fetchPosture(accountId: accountId)
         async let ov      = fetchOverview()
         async let cost    = fetchCost(accountId: accountId)
+        async let resources = fetchActiveResources()
 
         var failures: [String] = []
 
@@ -49,6 +51,16 @@ final class DashboardViewModel: ObservableObject {
             costSummary = nil
             failures.append("cost summary: \(error.localizedDescription)")
         }
+        do {
+            activeResources = try await resources
+        } catch {
+            activeResources = overview?.resolvedActiveResources() ?? 0
+            failures.append("active resources: \(error.localizedDescription)")
+        }
+
+        if activeResources == 0 {
+            activeResources = overview?.resolvedActiveResources() ?? 0
+        }
 
         if !failures.isEmpty {
             error = "Dashboard fetch failures:\n" + failures.joined(separator: "\n")
@@ -57,21 +69,15 @@ final class DashboardViewModel: ObservableObject {
     }
 
     private func fetchDeployments(accountId: String?) async throws -> [Deployment] {
-        if let aid = accountId {
-            if let list: [Deployment] = try? await api.get("api/v1/cloud-accounts/\(aid)/deployments?limit=500") {
-                return list
-            }
-            if let list: [Deployment] = try? await api.get("api/v1/deployments?cloud_account_id=\(aid)&limit=500") {
-                return list
-            }
-        }
-        return try await api.get("api/v1/deployments?limit=500")
+        try await api.fetchDeploymentsScoped(accountId: accountId, limit: 500)
     }
 
     private func fetchPosture(accountId: String?) async throws -> DriftPosture {
-        let path = accountId.map { "api/v1/drift/posture?cloud_account_id=\($0)" }
-                ?? "api/v1/drift/posture"
-        return try await api.get(path)
+        if let aid = accountId,
+           let scoped: DriftPosture = try? await api.get("api/v1/drift/posture?cloud_account_id=\(aid)") {
+            return scoped
+        }
+        return try await api.get("api/v1/drift/posture")
     }
 
     private func fetchOverview() async throws -> AnalyticsOverview {
@@ -86,5 +92,13 @@ final class DashboardViewModel: ObservableObject {
         }
         if let s: CostSummary = try? await api.get("api/v1/cost/summary") { return s }
         return try await api.get("api/v1/dashboard/cost")
+    }
+
+    private func fetchActiveResources() async throws -> Int {
+        if let resources: [Resource] = try? await api.get("api/v1/resources") {
+            return resources.count
+        }
+        let inventory: [Resource] = try await api.get("api/v1/inventory")
+        return inventory.count
     }
 }

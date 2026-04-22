@@ -18,7 +18,7 @@ final class DriftViewModel: ObservableObject {
 
         async let p  = fetchPosture(accountId: accountId)
         async let d  = fetchDriftDeployments(accountId: accountId)
-        async let nm = fetchNameMap(accountId: accountId)
+        async let deps = fetchDeployments(accountId: accountId)
 
         var failures: [String] = []
 
@@ -28,17 +28,33 @@ final class DriftViewModel: ObservableObject {
             posture = nil
             failures.append("posture: \(error.localizedDescription)")
         }
-        do {
-            items = try await d
-        } catch {
-            items = []
-            failures.append("drift deployments: \(error.localizedDescription)")
+        let driftResult = await Result { try await d }
+        let depsResult = await Result { try await deps }
+
+        let deploymentList = (try? depsResult.get()) ?? []
+        nameMap = Dictionary(uniqueKeysWithValues: deploymentList.map { ($0.id, $0.resolvedName) })
+
+        if let driftItems = try? driftResult.get(), !driftItems.isEmpty {
+            items = driftItems
+        } else {
+            items = deploymentList.map {
+                DriftDeployment(
+                    deploymentId: $0.id,
+                    drifted: $0.driftStatus?.lowercased() == "drifted",
+                    driftedResourcesCount: nil,
+                    changesCount: nil,
+                    severity: nil,
+                    lastCheckedAt: nil,
+                    jobStatus: $0.driftStatus
+                )
+            }
         }
-        do {
-            nameMap = try await nm
-        } catch {
-            nameMap = [:]
-            failures.append("deployment name map: \(error.localizedDescription)")
+
+        if case .failure(let e) = driftResult {
+            failures.append("drift deployments unavailable, using deployment fallback: \(e.localizedDescription)")
+        }
+        if case .failure(let e) = depsResult {
+            failures.append("deployment name map: \(e.localizedDescription)")
         }
 
         if !failures.isEmpty {
@@ -77,17 +93,7 @@ final class DriftViewModel: ObservableObject {
         return try await api.get(path)
     }
 
-    private func fetchNameMap(accountId: String?) async throws -> [String: String] {
-        var deps: [Deployment] = []
-        if let aid = accountId,
-           let list: [Deployment] = try? await api.get("api/v1/cloud-accounts/\(aid)/deployments?limit=500") {
-            deps = list
-        } else if let aid = accountId,
-                  let list: [Deployment] = try? await api.get("api/v1/deployments?cloud_account_id=\(aid)&limit=500") {
-            deps = list
-        } else if let list: [Deployment] = try? await api.get("api/v1/deployments?limit=500") {
-            deps = list
-        }
-        return Dictionary(uniqueKeysWithValues: deps.map { ($0.id, $0.resolvedName) })
+    private func fetchDeployments(accountId: String?) async throws -> [Deployment] {
+        try await api.fetchDeploymentsScoped(accountId: accountId, limit: 500)
     }
 }
