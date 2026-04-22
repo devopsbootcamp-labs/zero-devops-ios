@@ -28,8 +28,10 @@ final class DriftViewModel: ObservableObject {
             posture = nil
             failures.append("posture: \(error.localizedDescription)")
         }
-        let driftResult = await Result { try await d }
-        let depsResult = await Result { try await deps }
+        let driftResult: Result<[DriftDeployment], Error>
+        do { driftResult = .success(try await d) } catch { driftResult = .failure(error) }
+        let depsResult: Result<[Deployment], Error>
+        do { depsResult = .success(try await deps) } catch { depsResult = .failure(error) }
 
         let deploymentList = (try? depsResult.get()) ?? []
         nameMap = Dictionary(uniqueKeysWithValues: deploymentList.map { ($0.id, $0.resolvedName) })
