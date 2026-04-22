@@ -107,6 +107,42 @@ final class APIClient {
         let _: EmptyResponse = try await perform(method: "DELETE", path: path, body: Optional<EmptyBody>.none)
     }
 
+    func discoverCloudAccounts() async -> [CloudAccount] {
+        if let wrapped: CloudAccountsResponse = try? await get("api/v1/accounts") {
+            let resolved = deduplicateAccounts(wrapped.resolved)
+            if !resolved.isEmpty { return resolved }
+        }
+        if let list: [CloudAccount] = try? await get("api/v1/accounts") {
+            let resolved = deduplicateAccounts(list)
+            if !resolved.isEmpty { return resolved }
+        }
+        if let wrapped: CloudAccountsResponse = try? await get("api/v1/cloud/accounts") {
+            let resolved = deduplicateAccounts(wrapped.resolved)
+            if !resolved.isEmpty { return resolved }
+        }
+        if let list: [CloudAccount] = try? await get("api/v1/cloud/accounts") {
+            let resolved = deduplicateAccounts(list)
+            if !resolved.isEmpty { return resolved }
+        }
+        if let wrapped: CloudAccountsResponse = try? await get("api/v1/cloud-accounts") {
+            let resolved = deduplicateAccounts(wrapped.resolved)
+            if !resolved.isEmpty { return resolved }
+        }
+        if let list: [CloudAccount] = try? await get("api/v1/cloud-accounts") {
+            let resolved = deduplicateAccounts(list)
+            if !resolved.isEmpty { return resolved }
+        }
+
+        for path in ["api/v1/accounts", "api/v1/cloud/accounts", "api/v1/cloud-accounts"] {
+            if let raw = try? await getJSON(path) {
+                let parsed = deduplicateAccounts(parseAccounts(from: raw))
+                if !parsed.isEmpty { return parsed }
+            }
+        }
+
+        return []
+    }
+
     /// Mirrors Android `fetchDeploymentsScoped`: prefer account-scoped endpoints, then fallback.
     /// Properly encodes dynamic path components.
     func fetchDeploymentsScoped(accountId: String?, limit: Int = 500) async throws -> [Deployment] {
@@ -168,6 +204,84 @@ final class APIClient {
     /// Example: encodePathComponent("acct-123/special") -> "acct-123%2Fspecial"
     static func encodePathComponent(_ component: String) -> String? {
         return percentEncode(component)
+    }
+
+    private func deduplicateAccounts(_ list: [CloudAccount]) -> [CloudAccount] {
+        var seen = Set<String>()
+        return list.filter {
+            let key = $0.resolvedScopeId.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !key.isEmpty else { return false }
+            return seen.insert(key).inserted
+        }
+    }
+
+    private func parseAccounts(from raw: Any) -> [CloudAccount] {
+        if let array = raw as? [[String: Any]] {
+            return array.compactMap(accountFromDictionary)
+        }
+        if let dict = raw as? [String: Any] {
+            let candidateKeys = ["accounts", "cloudAccounts", "cloud_accounts", "data", "items", "results"]
+            for key in candidateKeys {
+                if let nested = dict[key] {
+                    let parsed = parseAccounts(from: nested)
+                    if !parsed.isEmpty { return parsed }
+                }
+            }
+            if let single = accountFromDictionary(dict) {
+                return [single]
+            }
+        }
+        return []
+    }
+
+    private func accountFromDictionary(_ dict: [String: Any]) -> CloudAccount? {
+        func stringValue(_ keys: [String]) -> String? {
+            for key in keys {
+                if let value = dict[key] as? String {
+                    let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !trimmed.isEmpty { return trimmed }
+                }
+                if let value = dict[key] as? Int { return String(value) }
+                if let value = dict[key] as? Double {
+                    return value.rounded(.towardZero) == value ? String(Int(value)) : String(value)
+                }
+                if let value = dict[key] as? Bool { return value ? "true" : "false" }
+            }
+            return nil
+        }
+
+        let id = stringValue(["id"])
+        let cloudAccountId = stringValue(["cloudAccountId", "cloud_account_id"])
+        let accountId = stringValue(["accountId", "account_id"])
+        let externalAccountId = stringValue(["externalAccountId", "external_account_id"])
+        let cloudAccountName = stringValue(["cloudAccountName", "cloud_account_name"])
+        let displayName = stringValue(["displayName", "display_name"])
+        let name = stringValue(["name"])
+        let provider = stringValue(["provider"])
+        let cloudProvider = stringValue(["cloudProvider", "cloud_provider"])
+        let region = stringValue(["region"])
+        let defaultRegion = stringValue(["defaultRegion", "default_region"])
+        let status = stringValue(["status"])
+        let tenantId = stringValue(["tenantId", "tenant_id"])
+
+        let stable = cloudAccountId ?? accountId ?? externalAccountId ?? id ?? name
+        guard stable != nil else { return nil }
+
+        return CloudAccount(
+            id: id,
+            cloudAccountId: cloudAccountId,
+            accountId: accountId,
+            externalAccountId: externalAccountId,
+            cloudAccountName: cloudAccountName,
+            displayName: displayName,
+            name: name,
+            provider: provider,
+            cloudProvider: cloudProvider,
+            region: region,
+            defaultRegion: defaultRegion,
+            status: status,
+            tenantId: tenantId
+        )
     }
 
     // MARK: - Core

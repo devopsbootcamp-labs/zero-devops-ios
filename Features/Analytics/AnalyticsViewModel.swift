@@ -71,11 +71,7 @@ final class AnalyticsViewModel: ObservableObject {
         return []
     }
     private func loadAccounts() async -> [CloudAccount] {
-        if let list: [CloudAccount] = try? await api.get("api/v1/accounts") { return list }
-        if let resp: CloudAccountsResponse = try? await api.get("api/v1/cloud/accounts") { return resp.resolved }
-        if let list: [CloudAccount] = try? await api.get("api/v1/cloud-accounts") { return list }
-        if let resp: CloudAccountsResponse = try? await api.get("api/v1/cloud-accounts") { return resp.resolved }
-        return []
+        await api.discoverCloudAccounts()
     }
 
     private func deriveTrends(_ overview: AnalyticsOverview?) -> [AnalyticsTrend] {
