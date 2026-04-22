@@ -94,8 +94,10 @@ final class APIClient {
     /// Mirrors Android `fetchDeploymentsScoped`: prefer account-scoped endpoints, then fallback.
     /// Properly encodes dynamic path components.
     func fetchDeploymentsScoped(accountId: String?, limit: Int = 500) async throws -> [Deployment] {
-        let scoped = accountId?.trimmingCharacters(in: .whitespacesAndNewlines)
-            .flatMap { $0.isEmpty ? nil : $0 }
+        let scoped = accountId.flatMap {
+            let trimmed = $0.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
 
         var lastError: Error?
         if let scoped, let encodedId = Self.percentEncode(scoped) {
