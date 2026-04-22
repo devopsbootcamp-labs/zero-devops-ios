@@ -13,17 +13,41 @@ final class CloudAccountsViewModel: ObservableObject {
         isLoading = true
         error     = nil
 
-        if let list: [CloudAccount] = try? await api.get("api/v1/accounts") {
+        var lastError: Error?
+
+        // Try each endpoint in order — surface the real error if all fail.
+        do {
+            let list: [CloudAccount] = try await api.get("api/v1/accounts")
             accounts = deduplicated(list)
-        } else if let resp: CloudAccountsResponse = try? await api.get("api/v1/cloud/accounts") {
+            isLoading = false
+            return
+        } catch { lastError = error }
+
+        do {
+            let resp: CloudAccountsResponse = try await api.get("api/v1/cloud/accounts")
             accounts = deduplicated(resp.resolved)
-        } else if let resp: CloudAccountsResponse = try? await api.get("api/v1/cloud-accounts") {
+            isLoading = false
+            return
+        } catch { lastError = error }
+
+        do {
+            let resp: CloudAccountsResponse = try await api.get("api/v1/cloud-accounts")
             accounts = deduplicated(resp.resolved)
-        } else if let list: [CloudAccount] = try? await api.get("api/v1/cloud-accounts") {
+            isLoading = false
+            return
+        } catch { lastError = error }
+
+        do {
+            let list: [CloudAccount] = try await api.get("api/v1/cloud-accounts")
             accounts = deduplicated(list)
-        } else {
-            error = "Unable to load cloud accounts from API."
-        }
+            isLoading = false
+            return
+        } catch { lastError = error }
+
+        // All endpoints failed — show the real error (e.g. RBAC 403) rather than a generic message.
+        accounts = []
+        error = lastError.map { "Unable to load cloud accounts: \($0.localizedDescription)" }
+               ?? "Unable to load cloud accounts from API."
         isLoading = false
     }
 
