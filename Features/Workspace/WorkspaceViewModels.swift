@@ -88,9 +88,12 @@ final class ResourceDetailViewModel: ObservableObject {
 
     func load(deploymentId: String, resourceId: String) async {
         isLoading = true
-        if let list: [Resource] = try? await api.get("api/v1/resources?deployment_id=\(deploymentId)") {
+        if let encoded = APIClient.encodePathComponent(deploymentId),
+           let query = APIClient.buildQueryString(["deployment_id": deploymentId]),
+           let list: [Resource] = try? await api.get("api/v1/resources?\(query)") {
             resource = list.first { ($0.id ?? $0.resourceId) == resourceId }
-        } else if let list: [Resource] = try? await api.get("api/v1/deployments/\(deploymentId)/resources") {
+        } else if let encoded = APIClient.encodePathComponent(deploymentId),
+                  let list: [Resource] = try? await api.get("api/v1/deployments/\(encoded)/resources") {
             resource = list.first { ($0.id ?? $0.resourceId) == resourceId }
         }
         isLoading = false
@@ -143,13 +146,14 @@ final class CostViewModel: ObservableObject {
         return try await api.get("api/v1/dashboard/cost")
     }
     private func fetchResources(accountId: String?) async throws -> [CostResource] {
-        if let aid = accountId,
-           let r: [CostResource] = try? await api.get("api/v1/cloud-accounts/\(aid)/cost/resources") { return r }
+        if let aid = accountId, let encoded = APIClient.encodePathComponent(aid),
+           let r: [CostResource] = try? await api.get("api/v1/cloud-accounts/\(encoded)/cost/resources") { return r }
         return (try? await api.get("api/v1/cost/resources")) ?? []
     }
+    
     private func fetchDeployments(accountId: String?) async throws -> [CostDeployment] {
-        if let aid = accountId,
-           let d: [CostDeployment] = try? await api.get("api/v1/cloud-accounts/\(aid)/cost/deployments") { return d }
+        if let aid = accountId, let encoded = APIClient.encodePathComponent(aid),
+           let d: [CostDeployment] = try? await api.get("api/v1/cloud-accounts/\(encoded)/cost/deployments") { return d }
         return (try? await api.get("api/v1/cost/deployments")) ?? []
     }
 }

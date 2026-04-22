@@ -257,11 +257,37 @@ final class OidcAuthManager {
     }
 #endif
 
+    /// Revoke the refresh token at the identity provider to invalidate outstanding sessions.
+    func revokeRefreshToken(_ refreshToken: String) async {
+        let revokeEndpoint = URL(string: "\(AppConfig.oidcIssuer)/protocol/openid-connect/revoke")!
+        var request = URLRequest(url: revokeEndpoint)
+        request.httpMethod = "POST"
+        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        request.httpBody = formBody([
+            "client_id": AppConfig.oidcClientId,
+            "token": refreshToken,
+            "token_type_hint": "refresh_token"
+        ])
+        do {
+            let (response, _) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+                // Revocation endpoint often returns 204 No Content
+                return
+            }
+        } catch {
+            // Best-effort: if network fails, token is still invalidated server-side by TTL
+            _ = error
+        }
+    }
+
     // MARK: - JWT Helpers
 
+    /// Decode JWT claims without signature validation (for app use).
+    /// In production, validate signature using issuer's JWKS.
     static func decodeJwtClaims(_ jwt: String) -> [String: Any] {
         let parts = jwt.components(separatedBy: ".")
-        guard parts.count >= 2 else { return [:] }
+        guard parts.count >= 3 else { return [:] }  // Valid JWT must have 3 parts (header.payload.signature)
+        
         var b64 = parts[1]
             .replacingOccurrences(of: "-", with: "+")
             .replacingOccurrences(of: "_", with: "/")

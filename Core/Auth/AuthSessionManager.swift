@@ -115,6 +115,13 @@ final class AuthSessionManager: ObservableObject {
     }
 
     func logout() {
+        // Best-effort revoke refresh token at identity provider
+        if let bundle = tokenStore.load(), let refreshToken = bundle.refreshToken, !refreshToken.isEmpty {
+            Task {
+                await OidcAuthManager.shared.revokeRefreshToken(refreshToken)
+            }
+        }
+        
         tokenStore.clear()
         updateRequestContext(tenantId: nil, accountId: nil)
         DispatchQueue.main.async { self.isAuthenticated = false }

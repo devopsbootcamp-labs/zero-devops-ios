@@ -92,16 +92,17 @@ final class APIClient {
     }
 
     /// Mirrors Android `fetchDeploymentsScoped`: prefer account-scoped endpoints, then fallback.
+    /// Properly encodes dynamic path components.
     func fetchDeploymentsScoped(accountId: String?, limit: Int = 500) async throws -> [Deployment] {
         let scoped = accountId?.trimmingCharacters(in: .whitespacesAndNewlines)
             .flatMap { $0.isEmpty ? nil : $0 }
 
         var lastError: Error?
-        if let scoped {
+        if let scoped, let encodedId = Self.percentEncode(scoped) {
             let scopedPaths = [
-                "api/v1/cloud-accounts/\(scoped)/deployments?limit=\(limit)",
-                "api/v1/deployments?limit=\(limit)&cloud_account_id=\(scoped)",
-                "api/v1/deployments?cloud_account_id=\(scoped)&limit=\(limit)",
+                "api/v1/cloud-accounts/\(encodedId)/deployments?limit=\(limit)",
+                "api/v1/deployments?limit=\(limit)&cloud_account_id=\(encodedId)",
+                "api/v1/deployments?cloud_account_id=\(encodedId)&limit=\(limit)",
             ]
             for path in scopedPaths {
                 do {
@@ -125,6 +126,30 @@ final class APIClient {
         }
 
         throw lastError ?? APIError.invalidResponse
+    }
+    
+    /// Percent-encode path component for URL safety (RFC 3986).
+    private static func percentEncode(_ component: String) -> String? {
+        // Encode all except unreserved characters: A-Z a-z 0-9 - . _ ~
+        let unreserved = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~")
+        return component.addingPercentEncoding(withAllowedCharacters: unreserved)
+    }
+    
+    /// Build a query parameter string with proper encoding.
+    /// Example: buildQueryString(["cloud_account_id": "acct-123", "limit": "500"])
+    /// Returns: "cloud_account_id=acct-123&limit=500" (with unsafe characters encoded)
+    static func buildQueryString(_ params: [String: String]) -> String? {
+        let encoded = params.compactMap { key, value -> String? in
+            guard let k = percentEncode(key), let v = percentEncode(value) else { return nil }
+            return "\(k)=\(v)"
+        }
+        return encoded.isEmpty ? nil : encoded.joined(separator: "&")
+    }
+    
+    /// Build a path segment with proper encoding for a single component.
+    /// Example: encodePathComponent("acct-123/special") -> "acct-123%2Fspecial"
+    static func encodePathComponent(_ component: String) -> String? {
+        return percentEncode(component)
     }
 
     // MARK: - Core

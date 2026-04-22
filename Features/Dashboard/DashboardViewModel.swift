@@ -74,7 +74,8 @@ final class DashboardViewModel: ObservableObject {
 
     private func fetchPosture(accountId: String?) async throws -> DriftPosture {
         if let aid = accountId,
-           let scoped: DriftPosture = try? await api.get("api/v1/drift/posture?cloud_account_id=\(aid)") {
+           let query = APIClient.buildQueryString(["cloud_account_id": aid]),
+           let scoped: DriftPosture = try? await api.get("api/v1/drift/posture?\(query)") {
             return scoped
         }
         return try await api.get("api/v1/drift/posture")
@@ -85,10 +86,9 @@ final class DashboardViewModel: ObservableObject {
     }
 
     private func fetchCost(accountId: String?) async throws -> CostSummary {
-        if let aid = accountId {
-            if let s: CostSummary = try? await api.get("api/v1/cloud-accounts/\(aid)/cost/summary") {
-                return s
-            }
+        if let aid = accountId, let encoded = APIClient.encodePathComponent(aid),
+           let s: CostSummary = try? await api.get("api/v1/cloud-accounts/\(encoded)/cost/summary") {
+            return s
         }
         if let s: CostSummary = try? await api.get("api/v1/cost/summary") { return s }
         return try await api.get("api/v1/dashboard/cost")

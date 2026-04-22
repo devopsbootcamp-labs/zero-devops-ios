@@ -82,15 +82,18 @@ final class DriftViewModel: ObservableObject {
     }
 
     private func fetchPosture(accountId: String?) async throws -> DriftPosture {
-        let path = accountId.map { "api/v1/drift/posture?cloud_account_id=\($0)" }
-                ?? "api/v1/drift/posture"
-        return try await api.get(path)
+        if let aid = accountId, let query = APIClient.buildQueryString(["cloud_account_id": aid]) {
+            return try await api.get("api/v1/drift/posture?\(query)")
+        }
+        return try await api.get("api/v1/drift/posture")
     }
 
     private func fetchDriftDeployments(accountId: String?) async throws -> [DriftDeployment] {
         let base = "api/v1/drift/deployments?limit=100"
-        let path = accountId.map { "\(base)&cloud_account_id=\($0)" } ?? base
-        return try await api.get(path)
+        if let aid = accountId, let query = APIClient.buildQueryString(["cloud_account_id": aid]) {
+            return try await api.get("\(base)&\(query)")
+        }
+        return try await api.get(base)
     }
 
     private func fetchDeployments(accountId: String?) async throws -> [Deployment] {

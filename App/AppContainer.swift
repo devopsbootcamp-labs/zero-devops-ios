@@ -45,13 +45,7 @@ final class AppContainer: ObservableObject {
     func onAppear() {
         if sessionManager.resumeIfAvailable() {
             hydrateContextFromStoredBundle()
-            // Hydrate tenant/account context from API on resume — mirrors Android resumeSessionIfAvailable().
-            // Without this, x-tenant-id is never set if the JWT didn't carry tenant_id claims,
-            // causing RBAC and scoping failures on every subsequent API call.
-            Task {
-                await ensureTenantContext()
-                sessionReady = true
-            }
+            sessionReady = true
         }
     }
 
