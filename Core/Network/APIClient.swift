@@ -169,7 +169,7 @@ final class APIClient {
 
                 do {
                     let raw = try await getJSON(path)
-                    let parsed = deduplicateAccounts(parseAccounts(from: raw))
+                    let parsed = deduplicateAccounts(parseAccounts(from: raw, requireExplicitAccountKey: false))
                     diagnostics.append("\(path) raw: \(parsed.count)")
                     if !parsed.isEmpty {
                         return CloudAccountDiscoveryResult(accounts: parsed, diagnostics: diagnostics)
@@ -184,11 +184,22 @@ final class APIClient {
             }
         }
 
-        // Parse profile payloads for account-like claim lists when account APIs are RBAC denied.
+        // Parse profile payloads for explicit account claim objects when account APIs are RBAC denied.
         for path in ["api/v1/auth/me", "api/v1/users/me", "api/v1/me"] {
             if let raw = try? await getJSON(path) {
-                let parsed = deduplicateAccounts(parseAccounts(from: raw))
+                let parsed = deduplicateAccounts(parseAccounts(from: raw, requireExplicitAccountKey: true))
                 diagnostics.append("\(path) account-claims: \(parsed.count)")
+                if !parsed.isEmpty {
+                    return CloudAccountDiscoveryResult(accounts: parsed, diagnostics: diagnostics)
+                }
+            }
+        }
+
+        // Inventory/resource fallbacks can provide account metadata without cloud.read.
+        for path in ["api/v1/cloud/inventory", "api/v1/inventory", "api/v1/resources"] {
+            if let raw = try? await getJSON(path) {
+                let parsed = deduplicateAccounts(parseAccounts(from: raw, requireExplicitAccountKey: true))
+                diagnostics.append("\(path) account-like: \(parsed.count)")
                 if !parsed.isEmpty {
                     return CloudAccountDiscoveryResult(accounts: parsed, diagnostics: diagnostics)
                 }
@@ -320,9 +331,9 @@ final class APIClient {
         }
     }
 
-    private func parseAccounts(from raw: Any) -> [CloudAccount] {
+    private func parseAccounts(from raw: Any, requireExplicitAccountKey: Bool) -> [CloudAccount] {
         if let array = raw as? [[String: Any]] {
-            return array.compactMap(accountFromDictionary)
+            return array.compactMap { accountFromDictionary($0, requireExplicitAccountKey: requireExplicitAccountKey) }
         }
         if let dict = raw as? [String: Any] {
             let candidateKeys = [
@@ -331,11 +342,11 @@ final class APIClient {
             ]
             for key in candidateKeys {
                 if let nested = dict[key] {
-                    let parsed = parseAccounts(from: nested)
+                    let parsed = parseAccounts(from: nested, requireExplicitAccountKey: requireExplicitAccountKey)
                     if !parsed.isEmpty { return parsed }
                 }
             }
-            if let single = accountFromDictionary(dict) {
+            if let single = accountFromDictionary(dict, requireExplicitAccountKey: requireExplicitAccountKey) {
                 return [single]
             }
         }
@@ -380,7 +391,7 @@ final class APIClient {
         }
     }
 
-    private func accountFromDictionary(_ dict: [String: Any]) -> CloudAccount? {
+    private func accountFromDictionary(_ dict: [String: Any], requireExplicitAccountKey: Bool) -> CloudAccount? {
         func stringValue(_ keys: [String]) -> String? {
             for key in keys {
                 if let value = dict[key] as? String {
@@ -412,6 +423,21 @@ final class APIClient {
         let defaultRegion = stringValue(["defaultRegion", "default_region"])
         let status = stringValue(["status"])
         let tenantId = stringValue(["tenantId", "tenant_id"])
+
+        if requireExplicitAccountKey {
+            let explicitKeys = [
+                "cloudAccountId", "cloud_account_id", "accountId", "account_id", "externalAccountId",
+                "external_account_id", "x_account_id", "subscriptionId", "subscription_id", "projectId",
+                "project_id", "awsAccountId", "aws_account_id", "tenantAccountId", "tenant_account_id"
+            ]
+            let hasExplicit = explicitKeys.contains { key in
+                if let value = dict[key] as? String {
+                    return !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                }
+                return dict[key] != nil
+            }
+            if !hasExplicit { return nil }
+        }
 
         let stable = cloudAccountId ?? accountId ?? externalAccountId ?? id ?? name
         guard stable != nil else { return nil }

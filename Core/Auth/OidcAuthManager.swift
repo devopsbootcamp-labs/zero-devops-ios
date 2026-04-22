@@ -61,7 +61,7 @@ final class OidcAuthManager {
         let codeChallenge = Self.codeChallenge(from: codeVerifier)
 
         var comps = URLComponents(url: authorizationEndpoint, resolvingAgainstBaseURL: false)
-        comps?.queryItems = [
+        var queryItems = [
             URLQueryItem(name: "client_id", value: AppConfig.oidcClientId),
             URLQueryItem(name: "response_type", value: "code"),
             URLQueryItem(name: "redirect_uri", value: AppConfig.oidcRedirectURI),
@@ -70,6 +70,11 @@ final class OidcAuthManager {
             URLQueryItem(name: "code_challenge", value: codeChallenge),
             URLQueryItem(name: "code_challenge_method", value: "S256")
         ]
+        let audience = AppConfig.oidcAudience.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !audience.isEmpty {
+            queryItems.append(URLQueryItem(name: "audience", value: audience))
+        }
+        comps?.queryItems = queryItems
         guard let authURL = comps?.url else {
             throw AuthError.invalidTokenResponse
         }
