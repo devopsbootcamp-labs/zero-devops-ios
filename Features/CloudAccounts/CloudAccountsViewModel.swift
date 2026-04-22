@@ -21,10 +21,10 @@ final class CloudAccountsViewModel: ObservableObject {
         if accounts.isEmpty {
             // Build a user-readable error that surfaces exactly which endpoints were
             // tried and why they failed, so the root cause can be identified quickly.
-            let failures = diagnostics.filter { $0.contains("failed") || $0.contains("not resolved") }
-            let successes = diagnostics.filter { !$0.contains("failed") && !$0.contains("not resolved") }
+            let failures = diagnostics.filter { $0.contains("failed") }
+            let successes = diagnostics.filter { !$0.contains("failed") }
             var lines: [String] = ["Unable to load cloud accounts from API."]
-            if let tenantLine = diagnostics.first(where: { $0.hasPrefix("tenant") }) {
+            if let tenantLine = diagnostics.first(where: { $0 == "tenant: already set" || $0.hasPrefix("tenant from ") }) {
                 lines.append(tenantLine)
             }
             if let firstFailure = failures.first {

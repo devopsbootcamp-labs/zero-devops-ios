@@ -354,14 +354,18 @@ final class APIClient {
     }
 
     private func deriveAccounts(from deployments: [Deployment]) -> [CloudAccount] {
-        var grouped: [String: (provider: String, region: String?, tenantId: String?)] = [:]
+        var grouped: [String: (provider: String, region: String?, tenantId: String?, name: String?)] = [:]
         for dep in deployments {
             let account = (dep.resolvedAccountId ?? "unknown").trimmingCharacters(in: .whitespacesAndNewlines)
             let accountId = account.isEmpty ? "unknown" : account
             let provider = (dep.cloudProvider ?? "unknown").trimmingCharacters(in: .whitespacesAndNewlines)
+            let name = dep.params?["cloud_account_name"]
+                ?? dep.params?["account_name"]
+                ?? dep.params?["cloudAccountName"]
+                ?? dep.params?["accountName"]
             let key = "\(provider.lowercased()):\(accountId.lowercased())"
             if grouped[key] == nil {
-                grouped[key] = (provider: provider.isEmpty ? "unknown" : provider, region: dep.region, tenantId: dep.tenantId)
+                grouped[key] = (provider: provider.isEmpty ? "unknown" : provider, region: dep.region, tenantId: dep.tenantId, name: name)
             }
         }
 
@@ -378,9 +382,9 @@ final class APIClient {
                 cloudAccountId: normalizedAccountId,
                 accountId: normalizedAccountId,
                 externalAccountId: nil,
-                cloudAccountName: normalizedAccountId ?? "\(values.provider.uppercased()) (derived)",
-                displayName: normalizedAccountId ?? "\(values.provider.uppercased()) (derived)",
-                name: normalizedAccountId,
+                cloudAccountName: values.name ?? normalizedAccountId ?? "\(values.provider.uppercased()) (derived)",
+                displayName: values.name ?? normalizedAccountId ?? "\(values.provider.uppercased()) (derived)",
+                name: values.name ?? normalizedAccountId,
                 provider: values.provider,
                 cloudProvider: values.provider,
                 region: values.region,
@@ -502,17 +506,46 @@ final class APIClient {
             return nil
         }
 
+        func nestedObject(_ keys: [String]) -> [String: Any]? {
+            for key in keys {
+                if let object = dict[key] as? [String: Any] {
+                    return object
+                }
+            }
+            return nil
+        }
+
+        func nestedString(in object: [String: Any]?, keys: [String]) -> String? {
+            guard let object else { return nil }
+            for key in keys {
+                if let value = object[key] as? String {
+                    let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !trimmed.isEmpty { return trimmed }
+                }
+                if let value = object[key] as? Int { return String(value) }
+                if let value = object[key] as? Double {
+                    return value.rounded(.towardZero) == value ? String(Int(value)) : String(value)
+                }
+            }
+            return nil
+        }
+
+        let nestedAccount = nestedObject(["cloudAccount", "cloud_account", "account"]) 
+
         let id = stringValue(["id", "deploymentId", "deployment_id", "name", "displayName"]) ?? UUID().uuidString
         let name = stringValue(["name", "deploymentName", "deployment_name", "displayName", "display_name"])
         let environment = stringValue(["environment"])
         let status = stringValue(["status"])
         let driftStatus = stringValue(["driftStatus", "drift_status"])
-        let cloudProvider = stringValue(["cloudProvider", "cloud_provider", "provider"])
+        let cloudProvider = stringValue(["cloudProvider", "cloud_provider", "provider"]) 
+            ?? nestedString(in: nestedAccount, keys: ["provider", "cloudProvider", "cloud_provider"])
         let region = stringValue(["region"])
         let blueprintId = stringValue(["blueprintId", "blueprint_id"])
         let description = stringValue(["description"])
-        let accountId = stringValue(["accountId", "account_id", "x_account_id"])
-        let cloudAccountId = stringValue(["cloudAccountId", "cloud_account_id"])
+        let accountId = stringValue(["accountId", "account_id", "x_account_id"]) 
+            ?? nestedString(in: nestedAccount, keys: ["accountId", "account_id", "id"])
+        let cloudAccountId = stringValue(["cloudAccountId", "cloud_account_id"]) 
+            ?? nestedString(in: nestedAccount, keys: ["cloudAccountId", "cloud_account_id", "id"])
         let tenantId = stringValue(["tenantId", "tenant_id"])
 
         var params: [String: String]? = nil
@@ -522,6 +555,21 @@ final class APIClient {
                 let value = String(describing: item.value)
                 partial[key] = value
             }
+        }
+        if let nestedAccount {
+            var p = params ?? [:]
+            if let value = nestedString(in: nestedAccount, keys: ["id"]) {
+                p["cloud_account_id"] = p["cloud_account_id"] ?? value
+                p["account_id"] = p["account_id"] ?? value
+            }
+            if let value = nestedString(in: nestedAccount, keys: ["name", "displayName", "display_name"]) {
+                p["cloud_account_name"] = p["cloud_account_name"] ?? value
+                p["account_name"] = p["account_name"] ?? value
+            }
+            if let value = nestedString(in: nestedAccount, keys: ["provider", "cloudProvider", "cloud_provider"]) {
+                p["cloud_provider"] = p["cloud_provider"] ?? value
+            }
+            params = p
         }
 
         return Deployment(
