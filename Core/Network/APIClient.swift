@@ -223,6 +223,7 @@ final class APIClient {
         if normalized.hasPrefix("/api/v1/cloud/accounts") { return false }
         if normalized.hasPrefix("/api/v1/accounts") { return false }
         if normalized.hasPrefix("/api/v1/analytics") { return false }
+        if normalized.hasPrefix("/api/v1/chat") { return false }
         if normalized.hasPrefix("/api/v1/dashboard") { return false }
         if normalized.hasPrefix("/api/v1/cost") { return false }
         if normalized.hasPrefix("/api/v1/resources") { return false }

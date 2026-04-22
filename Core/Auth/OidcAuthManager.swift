@@ -105,9 +105,9 @@ final class OidcAuthManager {
             refreshToken: token.refreshToken,
             idToken: token.idToken,
             expiresAt: expiresAt,
-            tenantId: claims["tenant_id"] as? String,
-            accountId: claims["account_id"] as? String,
-            cloudAccountId: claims["cloud_account_id"] as? String
+            tenantId: Self.extractTenantId(from: claims),
+            accountId: Self.extractAccountId(from: claims),
+            cloudAccountId: Self.extractCloudAccountId(from: claims)
         )
     }
 
@@ -208,9 +208,9 @@ final class OidcAuthManager {
             refreshToken: parsed.refreshToken ?? refreshToken,
             idToken: parsed.idToken ?? currentBundle.idToken,
             expiresAt: expiresAt,
-            tenantId: claims["tenant_id"] as? String ?? currentBundle.tenantId,
-            accountId: claims["account_id"] as? String ?? currentBundle.accountId,
-            cloudAccountId: claims["cloud_account_id"] as? String ?? currentBundle.cloudAccountId
+            tenantId: Self.extractTenantId(from: claims) ?? currentBundle.tenantId,
+            accountId: Self.extractAccountId(from: claims) ?? currentBundle.accountId,
+            cloudAccountId: Self.extractCloudAccountId(from: claims) ?? currentBundle.cloudAccountId
         )
     }
 
@@ -345,5 +345,27 @@ final class OidcAuthManager {
               let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
         else { return [:] }
         return dict
+    }
+
+    private static func firstNonBlank(in claims: [String: Any], keys: [String]) -> String? {
+        for key in keys {
+            if let value = claims[key] as? String {
+                let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty { return trimmed }
+            }
+        }
+        return nil
+    }
+
+    private static func extractTenantId(from claims: [String: Any]) -> String? {
+        firstNonBlank(in: claims, keys: ["tenant_id", "tenantId", "tenant_uuid", "tenantUUID", "tid", "org_id", "tenant"])
+    }
+
+    private static func extractAccountId(from claims: [String: Any]) -> String? {
+        firstNonBlank(in: claims, keys: ["account_id", "accountId", "x_account_id", "cloud_account_id", "cloudAccountId"])
+    }
+
+    private static func extractCloudAccountId(from claims: [String: Any]) -> String? {
+        firstNonBlank(in: claims, keys: ["cloud_account_id", "cloudAccountId", "account_id", "accountId", "x_account_id"])
     }
 }

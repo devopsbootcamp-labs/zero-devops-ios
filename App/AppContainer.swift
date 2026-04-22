@@ -45,6 +45,7 @@ final class AppContainer: ObservableObject {
     func onAppear() {
         if sessionManager.resumeIfAvailable() {
             hydrateContextFromStoredBundle()
+            Task { await ensureTenantContext() }
             sessionReady = true
         }
     }
@@ -92,8 +93,8 @@ final class AppContainer: ObservableObject {
     }
 
     private func hydrateContext(from bundle: TokenBundle) {
-        tenantId          = bundle.tenantId
-        let scope = bundle.cloudAccountId ?? bundle.accountId
+        tenantId          = bundle.tenantId ?? sessionManager.currentTenantId()
+        let scope = bundle.cloudAccountId ?? bundle.accountId ?? sessionManager.currentAccountId()
         selectedAccountId = isUsableAccountId(scope) ? scope : nil
         sessionManager.updateRequestContext(
             tenantId: tenantId,
@@ -118,12 +119,19 @@ final class AppContainer: ObservableObject {
         if selectedAccountId == nil {
             if let accounts: [CloudAccount] = try? await api.get("api/v1/accounts") {
                 selectedAccountId = accounts.first(where: { isUsableAccountId($0.requestScopeId) })?.requestScopeId
+            } else if let response: CloudAccountsResponse = try? await api.get("api/v1/accounts") {
+                selectedAccountId = response.resolved.first(where: { isUsableAccountId($0.requestScopeId) })?.requestScopeId
             } else if let response: CloudAccountsResponse = try? await api.get("api/v1/cloud/accounts") {
                 selectedAccountId = response.resolved.first(where: { isUsableAccountId($0.requestScopeId) })?.requestScopeId
             } else if let response: CloudAccountsResponse = try? await api.get("api/v1/cloud-accounts") {
                 selectedAccountId = response.resolved.first(where: { isUsableAccountId($0.requestScopeId) })?.requestScopeId
             } else if let accounts: [CloudAccount] = try? await api.get("api/v1/cloud-accounts") {
                 selectedAccountId = accounts.first(where: { isUsableAccountId($0.requestScopeId) })?.requestScopeId
+            } else if let deployments: [Deployment] = try? await api.get("api/v1/deployments?limit=100") {
+                selectedAccountId = deployments.compactMap { dep in
+                    let candidate = (dep.resolvedAccountId ?? dep.cloudAccountId ?? dep.accountId)?.trimmingCharacters(in: .whitespacesAndNewlines)
+                    return isUsableAccountId(candidate) ? candidate : nil
+                }.first
             }
         }
 
