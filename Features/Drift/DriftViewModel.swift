@@ -20,6 +20,8 @@ final class DriftViewModel: ObservableObject {
             || text.contains("missing deployments.read")
             || text.contains("decode error")
             || text.contains("correct format")
+            || text.contains("cancelled")
+            || text == "cancel"
     }
 
     func load(accountId: String?) async {
@@ -69,6 +71,11 @@ final class DriftViewModel: ObservableObject {
         }
         if case .failure(let e) = depsResult, !isIgnorableDriftError(e) {
             failures.append("deployment name map: \(e.localizedDescription)")
+        }
+
+        if Task.isCancelled {
+            isLoading = false
+            return
         }
 
         if !failures.isEmpty {

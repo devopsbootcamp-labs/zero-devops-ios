@@ -36,6 +36,16 @@ final class CloudAccountsViewModel: ObservableObject {
         }
 
         if accounts.isEmpty {
+            if let raw = try? await api.getJSON("api/v1/accounts") {
+                accounts = deduplicated(parseAccounts(from: raw))
+            } else if let raw = try? await api.getJSON("api/v1/cloud/accounts") {
+                accounts = deduplicated(parseAccounts(from: raw))
+            } else if let raw = try? await api.getJSON("api/v1/cloud-accounts") {
+                accounts = deduplicated(parseAccounts(from: raw))
+            }
+        }
+
+        if accounts.isEmpty {
             do {
                 let deps = try await api.fetchDeploymentsScoped(accountId: nil, limit: 500)
                 accounts = deduplicated(deriveAccounts(from: deps))
@@ -131,6 +141,75 @@ final class CloudAccountsViewModel: ObservableObject {
                 tenantId: bundle?.tenantId
             )
         ]
+    }
+
+    private func parseAccounts(from raw: Any) -> [CloudAccount] {
+        if let array = raw as? [[String: Any]] {
+            return array.compactMap(accountFromDictionary)
+        }
+        if let dict = raw as? [String: Any] {
+            let candidateKeys = ["accounts", "cloudAccounts", "cloud_accounts", "data", "items", "results"]
+            for key in candidateKeys {
+                if let nested = dict[key] {
+                    let parsed = parseAccounts(from: nested)
+                    if !parsed.isEmpty { return parsed }
+                }
+            }
+            if let single = accountFromDictionary(dict) {
+                return [single]
+            }
+        }
+        return []
+    }
+
+    private func accountFromDictionary(_ dict: [String: Any]) -> CloudAccount? {
+        func stringValue(_ keys: [String]) -> String? {
+            for key in keys {
+                if let value = dict[key] as? String {
+                    let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !trimmed.isEmpty { return trimmed }
+                }
+                if let value = dict[key] as? Int { return String(value) }
+                if let value = dict[key] as? Double {
+                    return value.rounded(.towardZero) == value ? String(Int(value)) : String(value)
+                }
+                if let value = dict[key] as? Bool { return value ? "true" : "false" }
+            }
+            return nil
+        }
+
+        let id = stringValue(["id"])
+        let cloudAccountId = stringValue(["cloudAccountId", "cloud_account_id"])
+        let accountId = stringValue(["accountId", "account_id"])
+        let externalAccountId = stringValue(["externalAccountId", "external_account_id"])
+        let cloudAccountName = stringValue(["cloudAccountName", "cloud_account_name"])
+        let displayName = stringValue(["displayName", "display_name"])
+        let name = stringValue(["name"])
+        let provider = stringValue(["provider"])
+        let cloudProvider = stringValue(["cloudProvider", "cloud_provider"])
+        let region = stringValue(["region"])
+        let defaultRegion = stringValue(["defaultRegion", "default_region"])
+        let status = stringValue(["status"])
+        let tenantId = stringValue(["tenantId", "tenant_id"])
+
+        let stable = cloudAccountId ?? accountId ?? externalAccountId ?? id ?? name
+        guard stable != nil else { return nil }
+
+        return CloudAccount(
+            id: id,
+            cloudAccountId: cloudAccountId,
+            accountId: accountId,
+            externalAccountId: externalAccountId,
+            cloudAccountName: cloudAccountName,
+            displayName: displayName,
+            name: name,
+            provider: provider,
+            cloudProvider: cloudProvider,
+            region: region,
+            defaultRegion: defaultRegion,
+            status: status,
+            tenantId: tenantId
+        )
     }
 
 }

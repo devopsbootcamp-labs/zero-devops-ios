@@ -79,6 +79,22 @@ final class APIClient {
         try await perform(method: "GET", path: path, body: Optional<EmptyBody>.none)
     }
 
+    func getJSON(_ path: String) async throws -> Any {
+        let first = try buildRequest(method: "GET", path: path, body: Optional<EmptyBody>.none, useFreshToken: false)
+        let (data, response) = try await urlSession.data(for: first)
+
+        do {
+            try validate(response: response, data: data)
+            return try JSONSerialization.jsonObject(with: data)
+        } catch APIError.httpError(let statusCode, _) where statusCode == 401 {
+            _ = try await sessionManager.refreshAccessToken()
+            let retry = try buildRequest(method: "GET", path: path, body: Optional<EmptyBody>.none, useFreshToken: true)
+            let (retryData, retryResponse) = try await urlSession.data(for: retry)
+            try validate(response: retryResponse, data: retryData)
+            return try JSONSerialization.jsonObject(with: retryData)
+        }
+    }
+
     func post<B: Encodable, T: Decodable>(_ path: String, body: B) async throws -> T {
         try await perform(method: "POST", path: path, body: body)
     }
