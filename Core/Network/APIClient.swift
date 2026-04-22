@@ -107,46 +107,85 @@ final class APIClient {
         let _: EmptyResponse = try await perform(method: "DELETE", path: path, body: Optional<EmptyBody>.none)
     }
 
-    func discoverCloudAccounts() async -> [CloudAccount] {
-        if let wrapped: CloudAccountsResponse = try? await get("api/v1/accounts") {
-            let resolved = deduplicateAccounts(wrapped.resolved)
-            if !resolved.isEmpty { return resolved }
-        }
-        if let list: [CloudAccount] = try? await get("api/v1/accounts") {
-            let resolved = deduplicateAccounts(list)
-            if !resolved.isEmpty { return resolved }
-        }
-        if let wrapped: CloudAccountsResponse = try? await get("api/v1/cloud/accounts") {
-            let resolved = deduplicateAccounts(wrapped.resolved)
-            if !resolved.isEmpty { return resolved }
-        }
-        if let list: [CloudAccount] = try? await get("api/v1/cloud/accounts") {
-            let resolved = deduplicateAccounts(list)
-            if !resolved.isEmpty { return resolved }
-        }
-        if let wrapped: CloudAccountsResponse = try? await get("api/v1/cloud-accounts") {
-            let resolved = deduplicateAccounts(wrapped.resolved)
-            if !resolved.isEmpty { return resolved }
-        }
-        if let list: [CloudAccount] = try? await get("api/v1/cloud-accounts") {
-            let resolved = deduplicateAccounts(list)
-            if !resolved.isEmpty { return resolved }
-        }
+    struct CloudAccountDiscoveryResult {
+        let accounts: [CloudAccount]
+        let diagnostics: [String]
+    }
 
-        for path in ["api/v1/accounts", "api/v1/cloud/accounts", "api/v1/cloud-accounts"] {
-            if let raw = try? await getJSON(path) {
+    func discoverCloudAccounts() async -> [CloudAccount] {
+        await discoverCloudAccountsDetailed().accounts
+    }
+
+    func discoverCloudAccountsDetailed() async -> CloudAccountDiscoveryResult {
+        var diagnostics: [String] = []
+
+        let accountPaths = ["api/v1/accounts", "api/v1/cloud/accounts", "api/v1/cloud-accounts"]
+        for path in accountPaths {
+            do {
+                let wrapped: CloudAccountsResponse = try await get(path)
+                let resolved = deduplicateAccounts(wrapped.resolved)
+                diagnostics.append("\(path) wrapped: \(resolved.count)")
+                if !resolved.isEmpty {
+                    return CloudAccountDiscoveryResult(accounts: resolved, diagnostics: diagnostics)
+                }
+            } catch {
+                diagnostics.append("\(path) wrapped failed: \(error.localizedDescription)")
+            }
+
+            do {
+                let list: [CloudAccount] = try await get(path)
+                let resolved = deduplicateAccounts(list)
+                diagnostics.append("\(path) list: \(resolved.count)")
+                if !resolved.isEmpty {
+                    return CloudAccountDiscoveryResult(accounts: resolved, diagnostics: diagnostics)
+                }
+            } catch {
+                diagnostics.append("\(path) list failed: \(error.localizedDescription)")
+            }
+
+            do {
+                let raw = try await getJSON(path)
                 let parsed = deduplicateAccounts(parseAccounts(from: raw))
-                if !parsed.isEmpty { return parsed }
+                diagnostics.append("\(path) raw: \(parsed.count)")
+                if !parsed.isEmpty {
+                    return CloudAccountDiscoveryResult(accounts: parsed, diagnostics: diagnostics)
+                }
+            } catch {
+                diagnostics.append("\(path) raw failed: \(error.localizedDescription)")
             }
         }
 
-        // Final fallback: derive account scopes from deployment payloads.
-        if let deployments = try? await fetchDeploymentsScoped(accountId: nil, limit: 500) {
-            let derived = deduplicateAccounts(deriveAccounts(from: deployments))
-            if !derived.isEmpty { return derived }
+        let accountLikePaths = [
+            "api/v1/cloud/inventory",
+            "api/v1/inventory",
+            "api/v1/resources",
+            "api/v1/deployments?limit=500",
+        ]
+        for path in accountLikePaths {
+            do {
+                let raw = try await getJSON(path)
+                let parsed = deduplicateAccounts(parseAccounts(from: raw))
+                diagnostics.append("\(path) account-like raw: \(parsed.count)")
+                if !parsed.isEmpty {
+                    return CloudAccountDiscoveryResult(accounts: parsed, diagnostics: diagnostics)
+                }
+            } catch {
+                diagnostics.append("\(path) account-like failed: \(error.localizedDescription)")
+            }
         }
 
-        return []
+        do {
+            let deployments = try await fetchDeploymentsScoped(accountId: nil, limit: 500)
+            let derived = deduplicateAccounts(deriveAccounts(from: deployments))
+            diagnostics.append("deployments-derived: \(derived.count)")
+            if !derived.isEmpty {
+                return CloudAccountDiscoveryResult(accounts: derived, diagnostics: diagnostics)
+            }
+        } catch {
+            diagnostics.append("deployments-derived failed: \(error.localizedDescription)")
+        }
+
+        return CloudAccountDiscoveryResult(accounts: [], diagnostics: diagnostics)
     }
 
     /// Mirrors Android `fetchDeploymentsScoped`: prefer account-scoped endpoints, then fallback.
@@ -234,7 +273,10 @@ final class APIClient {
             return array.compactMap(accountFromDictionary)
         }
         if let dict = raw as? [String: Any] {
-            let candidateKeys = ["accounts", "cloudAccounts", "cloud_accounts", "data", "items", "results"]
+            let candidateKeys = [
+                "accounts", "cloudAccounts", "cloud_accounts", "data", "items", "results",
+                "resources", "inventory", "records", "deployments", "rows"
+            ]
             for key in candidateKeys {
                 if let nested = dict[key] {
                     let parsed = parseAccounts(from: nested)
@@ -304,7 +346,10 @@ final class APIClient {
 
         let id = stringValue(["id"])
         let cloudAccountId = stringValue(["cloudAccountId", "cloud_account_id"])
-        let accountId = stringValue(["accountId", "account_id"])
+        let accountId = stringValue([
+            "accountId", "account_id", "x_account_id", "subscriptionId", "subscription_id",
+            "projectId", "project_id", "awsAccountId", "aws_account_id", "tenantAccountId", "tenant_account_id"
+        ])
         let externalAccountId = stringValue(["externalAccountId", "external_account_id"])
         let cloudAccountName = stringValue(["cloudAccountName", "cloud_account_name"])
         let displayName = stringValue(["displayName", "display_name"])
@@ -339,8 +384,87 @@ final class APIClient {
     private func fetchDeploymentList(path: String) async throws -> [Deployment] {
         if let list: [Deployment] = try? await get(path) { return list }
         if let wrapped: DeploymentListResponse = try? await get(path) { return wrapped.resolved }
-        let generic: ListResponse<Deployment> = try await get(path)
-        return generic.resolved
+        if let generic: ListResponse<Deployment> = try? await get(path) { return generic.resolved }
+        if let raw = try? await getJSON(path) {
+            let parsed = parseDeployments(from: raw)
+            if !parsed.isEmpty { return parsed }
+        }
+        throw APIError.invalidResponse
+    }
+
+    private func parseDeployments(from raw: Any) -> [Deployment] {
+        if let array = raw as? [[String: Any]] {
+            return array.compactMap(deploymentFromDictionary)
+        }
+        if let dict = raw as? [String: Any] {
+            for key in ["deployments", "data", "items", "results", "rows"] {
+                if let nested = dict[key] {
+                    let parsed = parseDeployments(from: nested)
+                    if !parsed.isEmpty { return parsed }
+                }
+            }
+            if let one = deploymentFromDictionary(dict) { return [one] }
+        }
+        return []
+    }
+
+    private func deploymentFromDictionary(_ dict: [String: Any]) -> Deployment? {
+        func stringValue(_ keys: [String]) -> String? {
+            for key in keys {
+                if let value = dict[key] as? String {
+                    let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !trimmed.isEmpty { return trimmed }
+                }
+                if let value = dict[key] as? Int { return String(value) }
+                if let value = dict[key] as? Double {
+                    return value.rounded(.towardZero) == value ? String(Int(value)) : String(value)
+                }
+                if let value = dict[key] as? Bool { return value ? "true" : "false" }
+            }
+            return nil
+        }
+
+        let id = stringValue(["id", "deploymentId", "deployment_id", "name", "displayName"]) ?? UUID().uuidString
+        let name = stringValue(["name", "deploymentName", "deployment_name", "displayName", "display_name"])
+        let environment = stringValue(["environment"])
+        let status = stringValue(["status"])
+        let driftStatus = stringValue(["driftStatus", "drift_status"])
+        let cloudProvider = stringValue(["cloudProvider", "cloud_provider", "provider"])
+        let region = stringValue(["region"])
+        let blueprintId = stringValue(["blueprintId", "blueprint_id"])
+        let description = stringValue(["description"])
+        let accountId = stringValue(["accountId", "account_id", "x_account_id"])
+        let cloudAccountId = stringValue(["cloudAccountId", "cloud_account_id"])
+        let tenantId = stringValue(["tenantId", "tenant_id"])
+
+        var params: [String: String]? = nil
+        if let paramDict = dict["params"] as? [String: Any] {
+            params = paramDict.reduce(into: [String: String]()) { partial, item in
+                let key = item.key
+                let value = String(describing: item.value)
+                partial[key] = value
+            }
+        }
+
+        return Deployment(
+            id: id,
+            name: name,
+            displayName: name,
+            deploymentName: name,
+            environment: environment,
+            status: status,
+            driftStatus: driftStatus,
+            cloudProvider: cloudProvider,
+            region: region,
+            blueprintId: blueprintId,
+            description: description,
+            createdAt: nil,
+            updatedAt: nil,
+            accountId: accountId,
+            cloudAccountId: cloudAccountId,
+            tenantId: tenantId,
+            params: params
+        )
     }
 
     // MARK: - Core
