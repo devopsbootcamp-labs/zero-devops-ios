@@ -52,11 +52,20 @@ final class DriftViewModel: ObservableObject {
             }
         }
 
-        if case .failure(let e) = driftResult {
-            failures.append("drift deployments unavailable, using deployment fallback: \(e.localizedDescription)")
+        if case .failure(let e) = driftResult, deploymentList.isEmpty {
+            failures.append("drift deployments unavailable: \(e.localizedDescription)")
         }
         if case .failure(let e) = depsResult {
             failures.append("deployment name map: \(e.localizedDescription)")
+        }
+
+        // Suppress noisy drift posture errors for RBAC/403; fallback UI still works.
+        failures = failures.filter { msg in
+            let lower = msg.lowercased()
+            if lower.contains("posture") && (lower.contains("rbac") || lower.contains("403") || lower.contains("forbidden")) {
+                return false
+            }
+            return true
         }
 
         if !failures.isEmpty {
@@ -93,9 +102,13 @@ final class DriftViewModel: ObservableObject {
     private func fetchDriftDeployments(accountId: String?) async throws -> [DriftDeployment] {
         let base = "api/v1/drift/deployments?limit=100"
         if let aid = accountId, let query = APIClient.buildQueryString(["cloud_account_id": aid]) {
-            return try await api.get("\(base)&\(query)")
+            let scopedPath = "\(base)&\(query)"
+            if let list: [DriftDeployment] = try? await api.get(scopedPath) { return list }
+            if let wrapped: DriftDeploymentsResponse = try? await api.get(scopedPath) { return wrapped.resolved }
         }
-        return try await api.get(base)
+        if let list: [DriftDeployment] = try? await api.get(base) { return list }
+        let wrapped: DriftDeploymentsResponse = try await api.get(base)
+        return wrapped.resolved
     }
 
     private func fetchDeployments(accountId: String?) async throws -> [Deployment] {

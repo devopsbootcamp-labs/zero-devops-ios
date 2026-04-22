@@ -139,7 +139,50 @@ private final class ChatViewModel: ObservableObject {
             lastError = error
         }
 
+        // Gateway canonical flow: /api/v1/chat/rooms/{id}/messages
+        if let roomId = await resolveRoomId() {
+            do {
+                let r: ChatRoomMessageResponse = try await api.post(
+                    "api/v1/chat/rooms/\(roomId)/messages",
+                    body: ChatRoomMessageRequest(message: body.message)
+                )
+                if !r.resolvedText.isEmpty { return (r.resolvedText, nil) }
+            } catch {
+                lastError = error
+            }
+
+            // Some backends persist message then stream/generate assistant reply asynchronously.
+            do {
+                let history: ChatRoomMessagesResponse = try await api.get("api/v1/chat/rooms/\(roomId)/messages")
+                if let assistant = history.resolved.reversed().first(where: { ($0.role ?? "").lowercased() == "assistant" }),
+                   !assistant.resolvedText.isEmpty {
+                    return (assistant.resolvedText, nil)
+                }
+                if let latest = history.resolved.last, !latest.resolvedText.isEmpty {
+                    return (latest.resolvedText, nil)
+                }
+            } catch {
+                lastError = error
+            }
+        }
+
         return (nil, lastError?.localizedDescription)
+    }
+
+    private func resolveRoomId() async -> String? {
+        if let rooms: [ChatRoom] = try? await api.get("api/v1/chat/rooms"), let id = rooms.first?.id {
+            return id
+        }
+        if let wrapped: ChatRoomsResponse = try? await api.get("api/v1/chat/rooms"), let id = wrapped.resolved.first?.id {
+            return id
+        }
+        if let created: ChatRoom = try? await api.post(
+            "api/v1/chat/rooms",
+            body: ChatRoomCreateRequest(name: "iOS Support")
+        ) {
+            return created.id
+        }
+        return nil
     }
 }
 

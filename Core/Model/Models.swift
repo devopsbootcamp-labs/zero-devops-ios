@@ -18,6 +18,33 @@ struct CloudAccount: Codable, Identifiable, Hashable {
     let status:           String?
     let tenantId:         String?
 
+    enum CodingKeys: String, CodingKey {
+        case id, cloudAccountId, accountId, externalAccountId
+        case cloudAccountName, displayName, name
+        case provider, cloudProvider, region, defaultRegion, status
+        case tenantId
+        case cloud_account_id, account_id, external_account_id
+        case cloud_account_name, display_name, cloud_provider, default_region
+        case tenant_id
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = c.decodeLossyString([.id])
+        cloudAccountId = c.decodeLossyString([.cloudAccountId, .cloud_account_id])
+        accountId = c.decodeLossyString([.accountId, .account_id])
+        externalAccountId = c.decodeLossyString([.externalAccountId, .external_account_id])
+        cloudAccountName = c.decodeLossyString([.cloudAccountName, .cloud_account_name])
+        displayName = c.decodeLossyString([.displayName, .display_name])
+        name = c.decodeLossyString([.name])
+        provider = c.decodeLossyString([.provider])
+        cloudProvider = c.decodeLossyString([.cloudProvider, .cloud_provider])
+        region = c.decodeLossyString([.region])
+        defaultRegion = c.decodeLossyString([.defaultRegion, .default_region])
+        status = c.decodeLossyString([.status])
+        tenantId = c.decodeLossyString([.tenantId, .tenant_id])
+    }
+
     private func normalizedIdentifier(_ candidates: [String?]) -> String? {
         for candidate in candidates {
             guard let value = candidate?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else {
@@ -64,6 +91,20 @@ struct CloudAccount: Codable, Identifiable, Hashable {
     // Hashable / Equatable by scope ID
     func hash(into hasher: inout Hasher) { hasher.combine(stableId) }
     static func == (l: Self, r: Self) -> Bool { l.stableId == r.stableId }
+}
+
+private extension KeyedDecodingContainer where Key: CodingKey {
+    func decodeLossyString(_ keys: [Key]) -> String? {
+        for key in keys {
+            if let s = try? decodeIfPresent(String.self, forKey: key), let s, !s.isEmpty { return s }
+            if let i = try? decodeIfPresent(Int.self, forKey: key), let i { return String(i) }
+            if let d = try? decodeIfPresent(Double.self, forKey: key), let d {
+                return d.rounded(.towardZero) == d ? String(Int(d)) : String(d)
+            }
+            if let b = try? decodeIfPresent(Bool.self, forKey: key), let b { return b ? "true" : "false" }
+        }
+        return nil
+    }
 }
 
 struct CloudAccountsResponse: Decodable {
@@ -172,6 +213,17 @@ struct DriftDeployment: Codable, Identifiable {
 
 struct DriftJobRequest: Encodable {
     let deploymentId: String
+}
+
+struct DriftDeploymentsResponse: Decodable {
+    let deployments: [DriftDeployment]?
+    let data: [DriftDeployment]?
+    let items: [DriftDeployment]?
+    let results: [DriftDeployment]?
+
+    var resolved: [DriftDeployment] {
+        deployments ?? data ?? items ?? results ?? []
+    }
 }
 
 // MARK: - Analytics
@@ -441,6 +493,53 @@ struct ChatResponse: Decodable {
 
     var resolvedText: String {
         reply ?? message ?? content ?? ""
+    }
+}
+
+struct ChatRoom: Decodable, Identifiable {
+    let id: String
+    let name: String?
+}
+
+struct ChatRoomsResponse: Decodable {
+    let data: [ChatRoom]?
+    let items: [ChatRoom]?
+    let results: [ChatRoom]?
+    let rooms: [ChatRoom]?
+
+    var resolved: [ChatRoom] {
+        rooms ?? data ?? items ?? results ?? []
+    }
+}
+
+struct ChatRoomCreateRequest: Encodable {
+    let name: String
+}
+
+struct ChatRoomMessageRequest: Encodable {
+    let message: String
+}
+
+struct ChatRoomMessageResponse: Decodable {
+    let message: String?
+    let text: String?
+    let content: String?
+    let reply: String?
+    let role: String?
+
+    var resolvedText: String {
+        reply ?? content ?? text ?? message ?? ""
+    }
+}
+
+struct ChatRoomMessagesResponse: Decodable {
+    let data: [ChatRoomMessageResponse]?
+    let items: [ChatRoomMessageResponse]?
+    let results: [ChatRoomMessageResponse]?
+    let messages: [ChatRoomMessageResponse]?
+
+    var resolved: [ChatRoomMessageResponse] {
+        messages ?? data ?? items ?? results ?? []
     }
 }
 

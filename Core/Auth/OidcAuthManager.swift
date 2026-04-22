@@ -180,8 +180,7 @@ final class OidcAuthManager {
         request.httpBody = formBody([
             "grant_type": "refresh_token",
             "refresh_token": refreshToken,
-            "client_id": AppConfig.oidcClientId,
-            "scope": AppConfig.oidcScopes.joined(separator: " ")
+            "client_id": AppConfig.oidcClientId
         ])
 
         let (data, response) = try await URLSession.shared.data(for: request)
@@ -240,7 +239,8 @@ final class OidcAuthManager {
     }
 
     private func normalizeCallbackError(_ value: String) -> String {
-        value.replacingOccurrences(of: "+", with: " ")
+        let plusNormalized = value.replacingOccurrences(of: "+", with: " ")
+        return plusNormalized.removingPercentEncoding ?? plusNormalized
     }
 
     private static func randomURLSafeString(length: Int) -> String {

@@ -7,7 +7,6 @@ enum AppConfig {
     static let oidcClientId        = "zero-devops-mobile"
     static let oidcRedirectURI     = "com.devopsbootcamp.app://callback"
     static let oidcPostLogoutURI   = "com.devopsbootcamp.app://logout"
-    // Keep requested scopes minimal for broad Keycloak compatibility.
-    // Client scopes like roles can still be mapped as default scopes server-side.
-    static let oidcScopes          = ["openid", "profile", "email"]
+    // Match Android scope set; server default scopes still supply role mappings.
+    static let oidcScopes          = ["openid", "profile", "email", "offline_access"]
 }
