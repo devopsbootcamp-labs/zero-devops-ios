@@ -13,16 +13,31 @@ final class DeploymentsViewModel: ObservableObject {
     func load(accountId: String?) async {
         isLoading = true
         error     = nil
-        if let aid = accountId,
-           let list: [Deployment] = try? await api.get("api/v1/cloud-accounts/\(aid)/deployments?limit=500") {
-            deployments = list
-        } else if let aid = accountId,
-                  let list: [Deployment] = try? await api.get("api/v1/deployments?cloud_account_id=\(aid)&limit=500") {
-            deployments = list
-        } else if let list: [Deployment] = try? await api.get("api/v1/deployments?limit=500") {
-            deployments = list
-        } else {
-            error = "Unable to load deployments."
+        var lastError: Error?
+        do {
+            if let aid = accountId {
+                do {
+                    deployments = try await api.get("api/v1/cloud-accounts/\(aid)/deployments?limit=500")
+                    isLoading = false
+                    return
+                } catch {
+                    lastError = error
+                }
+                do {
+                    deployments = try await api.get("api/v1/deployments?cloud_account_id=\(aid)&limit=500")
+                    isLoading = false
+                    return
+                } catch {
+                    lastError = error
+                }
+            }
+            deployments = try await api.get("api/v1/deployments?limit=500")
+        } catch {
+            lastError = error
+            deployments = []
+        }
+        if deployments.isEmpty, let lastError {
+            self.error = "Unable to load deployments: \(lastError.localizedDescription)"
         }
         isLoading = false
     }
@@ -41,29 +56,22 @@ final class ResourcesViewModel: ObservableObject {
     func load(accountId: String?) async {
         isLoading = true
         error     = nil
-        if let list: [Resource] = try? await api.get("api/v1/resources") {
-            resources = list
-        } else if let list: [Resource] = try? await api.get("api/v1/inventory") {
-            resources = list
-        } else if let aid = accountId,
-                  let deps: [Deployment] = try? await api.get("api/v1/cloud-accounts/\(aid)/deployments?limit=500") {
-            resources = deps.map {
-                Resource(
-                    id: $0.id,
-                    resourceId: nil,
-                    name: $0.resolvedName,
-                    type: "deployment",
-                    provider: $0.cloudProvider,
-                    region: $0.region,
-                    status: $0.status,
-                    driftStatus: $0.driftStatus,
-                    deploymentId: $0.id,
-                    deploymentName: $0.resolvedName,
-                    tags: nil
-                )
-            }
-        } else {
-            error = "Unable to load resources."
+        var lastError: Error?
+        do {
+            resources = try await api.get("api/v1/resources")
+            isLoading = false
+            return
+        } catch {
+            lastError = error
+        }
+        do {
+            resources = try await api.get("api/v1/inventory")
+        } catch {
+            lastError = error
+            resources = []
+        }
+        if resources.isEmpty, let lastError {
+            self.error = "Unable to load resources: \(lastError.localizedDescription)"
         }
         isLoading = false
     }
@@ -107,9 +115,24 @@ final class CostViewModel: ObservableObject {
         async let s  = fetchSummary(accountId: accountId)
         async let r  = fetchResources(accountId: accountId)
         async let d  = fetchDeployments(accountId: accountId)
-        summary     = try? await s
-        resources   = (try? await r) ?? []
-        deployments = (try? await d) ?? []
+        do {
+            summary     = try await s
+        } catch {
+            summary = nil
+            self.error = "Cost summary unavailable: \(error.localizedDescription)"
+        }
+        do {
+            resources = try await r
+        } catch {
+            resources = []
+            self.error = (self.error ?? "") + (self.error == nil ? "" : "\n") + "Cost resources unavailable: \(error.localizedDescription)"
+        }
+        do {
+            deployments = try await d
+        } catch {
+            deployments = []
+            self.error = (self.error ?? "") + (self.error == nil ? "" : "\n") + "Cost deployments unavailable: \(error.localizedDescription)"
+        }
         isLoading   = false
     }
 

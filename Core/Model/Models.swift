@@ -19,14 +19,15 @@ struct CloudAccount: Codable, Identifiable, Hashable {
     let tenantId:         String?
 
     private func normalizedIdentifier(_ candidates: [String?]) -> String? {
-        candidates.first { candidate in
+        for candidate in candidates {
             guard let value = candidate?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else {
-                return false
+                continue
             }
-            if value.caseInsensitiveCompare("unknown") == .orderedSame { return false }
-            if value.lowercased().hasSuffix(":unknown") { return false }
-            return true
-        }?.trimmingCharacters(in: .whitespacesAndNewlines)
+            if value.caseInsensitiveCompare("unknown") == .orderedSame { continue }
+            if value.lowercased().hasSuffix(":unknown") { continue }
+            return value
+        }
+        return nil
     }
 
     var requestScopeId: String? {

@@ -20,9 +20,30 @@ final class DriftViewModel: ObservableObject {
         async let d  = fetchDriftDeployments(accountId: accountId)
         async let nm = fetchNameMap(accountId: accountId)
 
-        posture  = try? await p
-        items    = (try? await d) ?? []
-        nameMap  = (try? await nm) ?? [:]
+        var failures: [String] = []
+
+        do {
+            posture = try await p
+        } catch {
+            posture = nil
+            failures.append("posture: \(error.localizedDescription)")
+        }
+        do {
+            items = try await d
+        } catch {
+            items = []
+            failures.append("drift deployments: \(error.localizedDescription)")
+        }
+        do {
+            nameMap = try await nm
+        } catch {
+            nameMap = [:]
+            failures.append("deployment name map: \(error.localizedDescription)")
+        }
+
+        if !failures.isEmpty {
+            error = "Drift fetch failures:\n" + failures.joined(separator: "\n")
+        }
         isLoading = false
     }
 

@@ -137,7 +137,8 @@ final class APIClient {
     }
 
     private func shouldAttachAccountHeader(path: String) -> Bool {
-        let normalized = path.hasPrefix("/") ? path : "/\(path)"
+        let pathOnly = String(path.split(separator: "?", maxSplits: 1, omittingEmptySubsequences: false).first ?? "")
+        let normalized = pathOnly.hasPrefix("/") ? pathOnly : "/\(pathOnly)"
 
         // Keep aggregate/list endpoints tenant-scoped to match web behavior.
         if normalized.hasPrefix("/api/v1/cloud/accounts") { return false }
@@ -145,7 +146,7 @@ final class APIClient {
         if normalized.hasPrefix("/api/v1/analytics") { return false }
         if normalized.hasPrefix("/api/v1/dashboard") { return false }
         if normalized.hasPrefix("/api/v1/cost") { return false }
-        if normalized == "/api/v1/resources" { return false }
+        if normalized.hasPrefix("/api/v1/resources") { return false }
         if normalized.hasPrefix("/api/v1/inventory") { return false }
         if normalized.hasPrefix("/api/v1/drift/posture") { return false }
         if normalized.hasPrefix("/api/v1/drift/deployments") { return false }
@@ -164,9 +165,27 @@ final class APIClient {
     private func validate(response: URLResponse, data: Data) throws {
         guard let http = response as? HTTPURLResponse else { throw APIError.invalidResponse }
         guard (200..<300).contains(http.statusCode) else {
-            let msg = (try? decoder.decode([String: String].self, from: data))?["message"] ?? ""
+            let msg = extractErrorMessage(from: data)
             throw APIError.httpError(statusCode: http.statusCode, message: msg)
         }
+    }
+
+    private func extractErrorMessage(from data: Data) -> String {
+        if let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            let keys = ["message", "error", "detail", "reason"]
+            for key in keys {
+                if let value = dict[key] as? String, !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    return value
+                }
+            }
+            if let errors = dict["errors"] as? [String], let first = errors.first, !first.isEmpty {
+                return first
+            }
+        }
+        if let raw = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty {
+            return raw.count > 180 ? String(raw.prefix(180)) + "..." : raw
+        }
+        return ""
     }
 
     private func decodeAny<T: Decodable>(_ data: Data) throws -> T {

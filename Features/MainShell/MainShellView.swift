@@ -26,7 +26,7 @@ struct MainShellView: View {
                     .tabItem { Label(tabs[0].label, systemImage: tabs[0].icon) }.tag(0)
                 BlueprintsView()
                     .tabItem { Label(tabs[1].label, systemImage: tabs[1].icon) }.tag(1)
-                CloudAccountsView()
+                CloudAccountsView(navPath: $navPath)
                     .tabItem { Label(tabs[2].label, systemImage: tabs[2].icon) }.tag(2)
                 AnalyticsView()
                     .tabItem { Label(tabs[3].label, systemImage: tabs[3].icon) }.tag(3)
@@ -53,6 +53,12 @@ struct MainShellView: View {
                     CostView()
                 case .chat:
                     ChatView()
+                case .drift:
+                    DriftView()
+                case .analytics:
+                    AnalyticsView()
+                case .accountWorkspace(let accountId, let accountName):
+                    AccountWorkspaceView(accountId: accountId, accountName: accountName, navPath: $navPath)
                 }
             }
         }
@@ -68,6 +74,9 @@ enum AppRoute: Hashable {
     case resourceDetail(deploymentId: String, resourceId: String)
     case cost
     case chat
+    case drift
+    case analytics
+    case accountWorkspace(accountId: String, accountName: String)
 }
 
 // MARK: - Chat

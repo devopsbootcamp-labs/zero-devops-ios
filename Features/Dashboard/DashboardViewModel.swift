@@ -23,10 +23,36 @@ final class DashboardViewModel: ObservableObject {
         async let ov      = fetchOverview()
         async let cost    = fetchCost(accountId: accountId)
 
-        deployments  = (try? await deps)    ?? []
-        self.posture = try? await posture
-        overview     = try? await ov
-        costSummary  = try? await cost
+        var failures: [String] = []
+
+        do {
+            deployments = try await deps
+        } catch {
+            deployments = []
+            failures.append("deployments: \(error.localizedDescription)")
+        }
+        do {
+            self.posture = try await posture
+        } catch {
+            self.posture = nil
+            failures.append("drift posture: \(error.localizedDescription)")
+        }
+        do {
+            overview = try await ov
+        } catch {
+            overview = nil
+            failures.append("analytics overview: \(error.localizedDescription)")
+        }
+        do {
+            costSummary = try await cost
+        } catch {
+            costSummary = nil
+            failures.append("cost summary: \(error.localizedDescription)")
+        }
+
+        if !failures.isEmpty {
+            error = "Dashboard fetch failures:\n" + failures.joined(separator: "\n")
+        }
         isLoading    = false
     }
 

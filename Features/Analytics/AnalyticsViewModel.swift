@@ -37,17 +37,28 @@ final class AnalyticsViewModel: ObservableObject {
         let overviewValue = await ov
         let performanceValue = await perf
         let trendValues = await tr
+        let providerValues = await prov
+        let blueprintValues = await bp
+        let failureValues = await fail
+        let activityValues = await act
+        let insightValues = await ins
+        let intelligenceValue = await intl
+        let accountValues = await acc
 
         overview     = overviewValue
         performance  = performanceValue ?? derivePerformance(overviewValue)
         trends       = trendValues.isEmpty ? deriveTrends(overviewValue) : trendValues
-        providers    = await prov
-        self.blueprints = await bp
-        failures     = await fail
-        activity     = await act
-        insights     = await ins
-        intelligence = await intl
-        accounts     = await acc
+        providers    = providerValues
+        self.blueprints = blueprintValues
+        failures     = failureValues
+        activity     = activityValues
+        insights     = insightValues
+        intelligence = intelligenceValue
+        accounts     = accountValues
+
+        if overviewValue == nil && providerValues.isEmpty && trendValues.isEmpty {
+            error = "Unable to load analytics from API endpoints."
+        }
         isLoading    = false
     }
 
