@@ -95,10 +95,6 @@ final class DashboardViewModel: ObservableObject {
     }
 
     private func fetchActiveResources() async throws -> Int {
-        if let resources: [Resource] = try? await api.get("api/v1/resources") {
-            return resources.count
-        }
-        let inventory: [Resource] = try await api.get("api/v1/inventory")
-        return inventory.count
+        try await api.fetchResourcesList().count
     }
 }

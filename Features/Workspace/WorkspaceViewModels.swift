@@ -15,23 +15,7 @@ final class DeploymentsViewModel: ObservableObject {
         error     = nil
         var lastError: Error?
         do {
-            if let aid = accountId {
-                do {
-                    deployments = try await api.get("api/v1/cloud-accounts/\(aid)/deployments?limit=500")
-                    isLoading = false
-                    return
-                } catch {
-                    lastError = error
-                }
-                do {
-                    deployments = try await api.get("api/v1/deployments?cloud_account_id=\(aid)&limit=500")
-                    isLoading = false
-                    return
-                } catch {
-                    lastError = error
-                }
-            }
-            deployments = try await api.get("api/v1/deployments?limit=500")
+            deployments = try await api.fetchDeploymentsScoped(accountId: accountId, limit: 500)
         } catch {
             lastError = error
             deployments = []
@@ -58,18 +42,13 @@ final class ResourcesViewModel: ObservableObject {
         error     = nil
         var lastError: Error?
         do {
-            resources = try await api.get("api/v1/resources")
+            resources = try await api.fetchResourcesList()
             isLoading = false
             return
         } catch {
             lastError = error
         }
-        do {
-            resources = try await api.get("api/v1/inventory")
-        } catch {
-            lastError = error
-            resources = []
-        }
+        resources = []
         if resources.isEmpty, let lastError {
             self.error = "Unable to load resources: \(lastError.localizedDescription)"
         }

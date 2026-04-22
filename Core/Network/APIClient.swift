@@ -160,7 +160,7 @@ final class APIClient {
             ]
             for path in scopedPaths {
                 do {
-                    return try await get(path)
+                    return try await fetchDeploymentList(path: path)
                 } catch {
                     lastError = error
                 }
@@ -173,13 +173,21 @@ final class APIClient {
         ]
         for path in tenantPaths {
             do {
-                return try await get(path)
+                return try await fetchDeploymentList(path: path)
             } catch {
                 lastError = error
             }
         }
 
         throw lastError ?? APIError.invalidResponse
+    }
+
+    func fetchResourcesList() async throws -> [Resource] {
+        if let list: [Resource] = try? await get("api/v1/resources") { return list }
+        if let wrapped: ListResponse<Resource> = try? await get("api/v1/resources") { return wrapped.resolved }
+        if let list: [Resource] = try? await get("api/v1/inventory") { return list }
+        if let wrapped: ListResponse<Resource> = try? await get("api/v1/inventory") { return wrapped.resolved }
+        return []
     }
     
     /// Percent-encode path component for URL safety (RFC 3986).
@@ -282,6 +290,13 @@ final class APIClient {
             status: status,
             tenantId: tenantId
         )
+    }
+
+    private func fetchDeploymentList(path: String) async throws -> [Deployment] {
+        if let list: [Deployment] = try? await get(path) { return list }
+        if let wrapped: DeploymentListResponse = try? await get(path) { return wrapped.resolved }
+        let generic: ListResponse<Deployment> = try await get(path)
+        return generic.resolved
     }
 
     // MARK: - Core

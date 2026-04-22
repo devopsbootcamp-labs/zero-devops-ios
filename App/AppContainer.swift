@@ -120,7 +120,7 @@ final class AppContainer: ObservableObject {
             let accounts = await api.discoverCloudAccounts()
             if let discovered = accounts.first(where: { isUsableAccountId($0.requestScopeId) })?.requestScopeId {
                 selectedAccountId = discovered
-            } else if let deployments: [Deployment] = try? await api.get("api/v1/deployments?limit=100") {
+            } else if let deployments = try? await api.fetchDeploymentsScoped(accountId: nil, limit: 100) {
                 selectedAccountId = deployments.compactMap { dep in
                     let candidate = (dep.resolvedAccountId ?? dep.cloudAccountId ?? dep.accountId)?.trimmingCharacters(in: .whitespacesAndNewlines)
                     return isUsableAccountId(candidate) ? candidate : nil

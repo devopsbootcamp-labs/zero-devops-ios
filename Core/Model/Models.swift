@@ -194,6 +194,17 @@ struct Deployment: Codable, Identifiable {
     }
 }
 
+struct DeploymentListResponse: Decodable {
+    let deployments: [Deployment]?
+    let data: [Deployment]?
+    let items: [Deployment]?
+    let results: [Deployment]?
+
+    var resolved: [Deployment] {
+        deployments ?? data ?? items ?? results ?? []
+    }
+}
+
 struct DeploymentPlan: Codable {
     let status:        String?
     let summary:       String?
