@@ -90,6 +90,11 @@ private final class ChatViewModel: ObservableObject {
 
     private let api = APIClient.shared
 
+    private func isNotFoundError(_ message: String?) -> Bool {
+        let value = (message ?? "").lowercased()
+        return value.contains("not found") || value.contains("404")
+    }
+
     func send() async {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, !isSending else { return }
@@ -105,10 +110,16 @@ private final class ChatViewModel: ObservableObject {
         if let reply = result.reply, !reply.isEmpty {
             messages.append(ChatMessage(role: .assistant, text: reply, createdAt: Date()))
         } else {
-            error = result.error ?? "Chat service is unavailable right now."
+            if isNotFoundError(result.error) {
+                error = nil
+            } else {
+                error = result.error ?? "Chat service is unavailable right now."
+            }
             messages.append(ChatMessage(
                 role: .assistant,
-                text: "I could not reach the chat service. Please try again in a moment.",
+                text: isNotFoundError(result.error)
+                    ? "Chat service is not enabled in this environment yet."
+                    : "I could not reach the chat service. Please try again in a moment.",
                 createdAt: Date()
             ))
         }
@@ -121,6 +132,8 @@ private final class ChatViewModel: ObservableObject {
         do {
             let r: ChatResponse = try await api.post("api/v1/chat", body: body)
             if !r.resolvedText.isEmpty { return (r.resolvedText, nil) }
+            let r2: ChatRoomMessageResponse = try await api.post("api/v1/chat", body: body)
+            if !r2.resolvedText.isEmpty { return (r2.resolvedText, nil) }
         } catch {
             lastError = error
         }
@@ -128,6 +141,8 @@ private final class ChatViewModel: ObservableObject {
         do {
             let r: ChatResponse = try await api.post("api/v1/ai/chat", body: body)
             if !r.resolvedText.isEmpty { return (r.resolvedText, nil) }
+            let r2: ChatRoomMessageResponse = try await api.post("api/v1/ai/chat", body: body)
+            if !r2.resolvedText.isEmpty { return (r2.resolvedText, nil) }
         } catch {
             lastError = error
         }
@@ -135,6 +150,8 @@ private final class ChatViewModel: ObservableObject {
         do {
             let r: ChatResponse = try await api.post("api/v1/assistant/chat", body: body)
             if !r.resolvedText.isEmpty { return (r.resolvedText, nil) }
+            let r2: ChatRoomMessageResponse = try await api.post("api/v1/assistant/chat", body: body)
+            if !r2.resolvedText.isEmpty { return (r2.resolvedText, nil) }
         } catch {
             lastError = error
         }

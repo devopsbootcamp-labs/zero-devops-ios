@@ -12,6 +12,16 @@ final class DriftViewModel: ObservableObject {
 
     private let api = APIClient.shared
 
+    private func isIgnorableDriftError(_ error: Error) -> Bool {
+        let text = error.localizedDescription.lowercased()
+        return text.contains("rbac")
+            || text.contains("forbidden")
+            || text.contains("403")
+            || text.contains("missing deployments.read")
+            || text.contains("decode error")
+            || text.contains("correct format")
+    }
+
     func load(accountId: String?) async {
         isLoading = true
         error     = nil
@@ -26,7 +36,9 @@ final class DriftViewModel: ObservableObject {
             posture = try await p
         } catch {
             posture = nil
-            failures.append("posture: \(error.localizedDescription)")
+            if !isIgnorableDriftError(error) {
+                failures.append("posture: \(error.localizedDescription)")
+            }
         }
         let driftResult: Result<[DriftDeployment], Error>
         do { driftResult = .success(try await d) } catch { driftResult = .failure(error) }
@@ -52,20 +64,11 @@ final class DriftViewModel: ObservableObject {
             }
         }
 
-        if case .failure(let e) = driftResult, deploymentList.isEmpty {
+        if case .failure(let e) = driftResult, deploymentList.isEmpty, !isIgnorableDriftError(e) {
             failures.append("drift deployments unavailable: \(e.localizedDescription)")
         }
-        if case .failure(let e) = depsResult {
+        if case .failure(let e) = depsResult, !isIgnorableDriftError(e) {
             failures.append("deployment name map: \(e.localizedDescription)")
-        }
-
-        // Suppress noisy drift posture errors for RBAC/403; fallback UI still works.
-        failures = failures.filter { msg in
-            let lower = msg.lowercased()
-            if lower.contains("posture") && (lower.contains("rbac") || lower.contains("403") || lower.contains("forbidden")) {
-                return false
-            }
-            return true
         }
 
         if !failures.isEmpty {
@@ -107,8 +110,9 @@ final class DriftViewModel: ObservableObject {
             if let wrapped: DriftDeploymentsResponse = try? await api.get(scopedPath) { return wrapped.resolved }
         }
         if let list: [DriftDeployment] = try? await api.get(base) { return list }
-        let wrapped: DriftDeploymentsResponse = try await api.get(base)
-        return wrapped.resolved
+        if let wrapped: DriftDeploymentsResponse = try? await api.get(base) { return wrapped.resolved }
+        // Keep Drift UI usable with deployment fallback when this endpoint is unavailable.
+        return []
     }
 
     private func fetchDeployments(accountId: String?) async throws -> [Deployment] {
