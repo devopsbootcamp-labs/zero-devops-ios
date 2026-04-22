@@ -140,6 +140,12 @@ final class APIClient {
             }
         }
 
+        // Final fallback: derive account scopes from deployment payloads.
+        if let deployments = try? await fetchDeploymentsScoped(accountId: nil, limit: 500) {
+            let derived = deduplicateAccounts(deriveAccounts(from: deployments))
+            if !derived.isEmpty { return derived }
+        }
+
         return []
     }
 
@@ -240,6 +246,44 @@ final class APIClient {
             }
         }
         return []
+    }
+
+    private func deriveAccounts(from deployments: [Deployment]) -> [CloudAccount] {
+        var grouped: [String: (provider: String, region: String?, tenantId: String?)] = [:]
+        for dep in deployments {
+            let account = (dep.resolvedAccountId ?? "unknown").trimmingCharacters(in: .whitespacesAndNewlines)
+            let accountId = account.isEmpty ? "unknown" : account
+            let provider = (dep.cloudProvider ?? "unknown").trimmingCharacters(in: .whitespacesAndNewlines)
+            let key = "\(provider.lowercased()):\(accountId.lowercased())"
+            if grouped[key] == nil {
+                grouped[key] = (provider: provider.isEmpty ? "unknown" : provider, region: dep.region, tenantId: dep.tenantId)
+            }
+        }
+
+        return grouped.map { item in
+            let key = item.key
+            let values = item.value
+            let accountId = key.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false).count > 1
+                ? String(key.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false)[1])
+                : "unknown"
+            let normalizedAccountId = accountId == "unknown" ? nil : accountId
+
+            return CloudAccount(
+                id: key,
+                cloudAccountId: normalizedAccountId,
+                accountId: normalizedAccountId,
+                externalAccountId: nil,
+                cloudAccountName: normalizedAccountId ?? "\(values.provider.uppercased()) (derived)",
+                displayName: normalizedAccountId ?? "\(values.provider.uppercased()) (derived)",
+                name: normalizedAccountId,
+                provider: values.provider,
+                cloudProvider: values.provider,
+                region: values.region,
+                defaultRegion: values.region,
+                status: "derived",
+                tenantId: values.tenantId
+            )
+        }
     }
 
     private func accountFromDictionary(_ dict: [String: Any]) -> CloudAccount? {
@@ -360,6 +404,7 @@ final class APIClient {
         if normalized.hasPrefix("/api/v1/drift/posture") { return false }
         if normalized.hasPrefix("/api/v1/drift/deployments") { return false }
         if normalized.hasPrefix("/api/v1/drift/jobs") { return false }
+        if normalized.hasPrefix("/api/v1/deployments") { return false }
 
         // Avoid duplicate account scoping when account is already in path.
         if normalized.range(of: "^/api/v1/cloud-accounts/[^/]+/deployments$", options: .regularExpression) != nil {
