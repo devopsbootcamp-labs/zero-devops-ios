@@ -3,6 +3,11 @@ import Foundation
 @MainActor
 final class CloudAccountsViewModel: ObservableObject {
 
+    private struct AccountProviderKey: Hashable {
+        let accountId: String
+        let provider: String
+    }
+
     @Published var accounts:         [CloudAccount] = []
     @Published var isLoading         = false
     @Published var error:            String?
@@ -61,11 +66,12 @@ final class CloudAccountsViewModel: ObservableObject {
         let grouped = Dictionary(grouping: deps) { dep in
             let accountKey = (dep.resolvedAccountId ?? "unknown").trimmingCharacters(in: .whitespacesAndNewlines)
             let normalizedAccount = accountKey.isEmpty ? "unknown" : accountKey
-            return (normalizedAccount, dep.cloudProvider ?? "unknown")
+            return AccountProviderKey(accountId: normalizedAccount, provider: dep.cloudProvider ?? "unknown")
         }
 
         return grouped.map { key, deployments in
-            let (accountId, provider) = key
+            let accountId = key.accountId
+            let provider = key.provider
             let names = deployments
                 .map { $0.resolvedName.trimmingCharacters(in: .whitespacesAndNewlines) }
                 .filter { !$0.isEmpty }
