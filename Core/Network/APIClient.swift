@@ -195,8 +195,13 @@ final class APIClient {
             }
         }
 
-        // Inventory/resource fallbacks can provide account metadata without cloud.read.
-        for path in ["api/v1/cloud/inventory", "api/v1/inventory", "api/v1/resources"] {
+        // Inventory/resource/analytics fallbacks can provide account metadata without cloud.read.
+        for path in [
+            "api/v1/cloud/inventory",
+            "api/v1/inventory",
+            "api/v1/resources",
+            "api/v1/analytics/deployments?limit=200&range=365",
+        ] {
             if let raw = try? await getJSON(path) {
                 let parsed = deduplicateAccounts(parseAccounts(from: raw, requireExplicitAccountKey: true))
                 diagnostics.append("\(path) account-like: \(parsed.count)")
@@ -248,7 +253,6 @@ final class APIClient {
                 }
             }
         }
-        diagnostics.append("tenant: not resolved from profile")
     }
 
     /// Mirrors Android `fetchDeploymentsScoped`: prefer account-scoped endpoints, then fallback.
