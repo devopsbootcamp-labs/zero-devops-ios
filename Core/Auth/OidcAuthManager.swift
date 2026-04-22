@@ -8,12 +8,20 @@ import UIKit
 
 enum AuthError: LocalizedError {
     case invalidTokenResponse
+    case tokenEndpointError(statusCode: Int, detail: String)
+    case callbackError(String)
     case notAuthenticated
 
     var errorDescription: String? {
         switch self {
-        case .invalidTokenResponse: return "Invalid or empty token response from identity provider."
-        case .notAuthenticated:     return "No valid session — please sign in."
+        case .invalidTokenResponse:
+            return "Invalid or empty token response from identity provider."
+        case .tokenEndpointError(let code, let detail):
+            return "Login failed (\(code)): \(detail)"
+        case .callbackError(let detail):
+            return "Authorization error: \(detail)"
+        case .notAuthenticated:
+            return "No valid session — please sign in."
         }
     }
 }
@@ -71,10 +79,19 @@ final class OidcAuthManager {
             callbackScheme: callbackScheme(),
             viewController: viewController
         )
-        guard
-            let callbackComps = URLComponents(url: callbackURL, resolvingAgainstBaseURL: false),
-            callbackComps.queryItems?.first(where: { $0.name == "state" })?.value == state,
-            let code = callbackComps.queryItems?.first(where: { $0.name == "code" })?.value
+        guard let callbackComps = URLComponents(url: callbackURL, resolvingAgainstBaseURL: false) else {
+            throw AuthError.invalidTokenResponse
+        }
+
+        // Surface any Keycloak error returned in the callback (e.g., access_denied)
+        if let errorCode = callbackComps.queryItems?.first(where: { $0.name == "error" })?.value {
+            let desc = callbackComps.queryItems?.first(where: { $0.name == "error_description" })?.value
+                ?? errorCode
+            throw AuthError.callbackError(desc)
+        }
+
+        guard callbackComps.queryItems?.first(where: { $0.name == "state" })?.value == state,
+              let code = callbackComps.queryItems?.first(where: { $0.name == "code" })?.value
         else {
             throw AuthError.invalidTokenResponse
         }
@@ -135,12 +152,21 @@ final class OidcAuthManager {
         ])
 
         let (data, response) = try await URLSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+        guard let http = response as? HTTPURLResponse else {
             throw AuthError.invalidTokenResponse
+        }
+        guard (200..<300).contains(http.statusCode) else {
+            throw AuthError.tokenEndpointError(
+                statusCode: http.statusCode,
+                detail: extractErrorDetail(from: data)
+            )
         }
         guard let parsed = try? JSONDecoder().decode(TokenResponse.self, from: data),
               !parsed.accessToken.isEmpty else {
-            throw AuthError.invalidTokenResponse
+            throw AuthError.tokenEndpointError(
+                statusCode: http.statusCode,
+                detail: extractErrorDetail(from: data)
+            )
         }
         return parsed
     }
@@ -159,12 +185,21 @@ final class OidcAuthManager {
         ])
 
         let (data, response) = try await URLSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+        guard let http = response as? HTTPURLResponse else {
             throw AuthError.invalidTokenResponse
+        }
+        guard (200..<300).contains(http.statusCode) else {
+            throw AuthError.tokenEndpointError(
+                statusCode: http.statusCode,
+                detail: extractErrorDetail(from: data)
+            )
         }
         guard let parsed = try? JSONDecoder().decode(TokenResponse.self, from: data),
               !parsed.accessToken.isEmpty else {
-            throw AuthError.invalidTokenResponse
+            throw AuthError.tokenEndpointError(
+                statusCode: http.statusCode,
+                detail: extractErrorDetail(from: data)
+            )
         }
 
         let expiresAt = Date().addingTimeInterval(TimeInterval(max(parsed.expiresIn ?? 60, 60)))
@@ -181,14 +216,27 @@ final class OidcAuthManager {
     }
 
     private func formBody(_ params: [String: String]) -> Data {
+        // RFC 3986 unreserved chars only — prevents + / = & from corrupting values
+        let unreserved = CharacterSet(charactersIn:
+            "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~")
         let body = params
             .map { key, value in
-                let k = key.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? key
-                let v = value.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? value
+                let k = key.addingPercentEncoding(withAllowedCharacters: unreserved) ?? key
+                let v = value.addingPercentEncoding(withAllowedCharacters: unreserved) ?? value
                 return "\(k)=\(v)"
             }
+            .sorted()   // deterministic order
             .joined(separator: "&")
         return Data(body.utf8)
+    }
+
+    private func extractErrorDetail(from data: Data) -> String {
+        if let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            let desc = dict["error_description"] as? String
+            let err  = dict["error"] as? String
+            if let detail = desc ?? err, !detail.isEmpty { return detail }
+        }
+        return String(data: data, encoding: .utf8)?.prefix(200).description ?? "Unknown error"
     }
 
     private static func randomURLSafeString(length: Int) -> String {
@@ -269,11 +317,8 @@ final class OidcAuthManager {
             "token_type_hint": "refresh_token"
         ])
         do {
-            let (response, _) = try await URLSession.shared.data(for: request)
-            guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-                // Revocation endpoint often returns 204 No Content
-                return
-            }
+            let (_, _) = try await URLSession.shared.data(for: request)
+            // Best-effort: any response (including 204 No Content) means revocation was accepted
         } catch {
             // Best-effort: if network fails, token is still invalidated server-side by TTL
             _ = error
