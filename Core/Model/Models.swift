@@ -2,7 +2,7 @@ import Foundation
 
 // MARK: - CloudAccount
 
-struct CloudAccount: Codable, Identifiable, Hashable {
+struct CloudAccount: Decodable, Identifiable, Hashable {
     // field name aliases — mirrors Android resolvedScopeId / resolvedAccountId
     let id:               String?
     let cloudAccountId:   String?
@@ -43,6 +43,36 @@ struct CloudAccount: Codable, Identifiable, Hashable {
         defaultRegion = c.decodeLossyString([.defaultRegion, .default_region])
         status = c.decodeLossyString([.status])
         tenantId = c.decodeLossyString([.tenantId, .tenant_id])
+    }
+
+    init(
+        id: String?,
+        cloudAccountId: String?,
+        accountId: String?,
+        externalAccountId: String?,
+        cloudAccountName: String?,
+        displayName: String?,
+        name: String?,
+        provider: String?,
+        cloudProvider: String?,
+        region: String?,
+        defaultRegion: String?,
+        status: String?,
+        tenantId: String?
+    ) {
+        self.id = id
+        self.cloudAccountId = cloudAccountId
+        self.accountId = accountId
+        self.externalAccountId = externalAccountId
+        self.cloudAccountName = cloudAccountName
+        self.displayName = displayName
+        self.name = name
+        self.provider = provider
+        self.cloudProvider = cloudProvider
+        self.region = region
+        self.defaultRegion = defaultRegion
+        self.status = status
+        self.tenantId = tenantId
     }
 
     private func normalizedIdentifier(_ candidates: [String?]) -> String? {
@@ -96,12 +126,18 @@ struct CloudAccount: Codable, Identifiable, Hashable {
 private extension KeyedDecodingContainer where Key: CodingKey {
     func decodeLossyString(_ keys: [Key]) -> String? {
         for key in keys {
-            if let s = try? decodeIfPresent(String.self, forKey: key), let s, !s.isEmpty { return s }
-            if let i = try? decodeIfPresent(Int.self, forKey: key), let i { return String(i) }
-            if let d = try? decodeIfPresent(Double.self, forKey: key), let d {
+            if let s = (try? decodeIfPresent(String.self, forKey: key)) ?? nil, !s.isEmpty {
+                return s
+            }
+            if let i = (try? decodeIfPresent(Int.self, forKey: key)) ?? nil {
+                return String(i)
+            }
+            if let d = (try? decodeIfPresent(Double.self, forKey: key)) ?? nil {
                 return d.rounded(.towardZero) == d ? String(Int(d)) : String(d)
             }
-            if let b = try? decodeIfPresent(Bool.self, forKey: key), let b { return b ? "true" : "false" }
+            if let b = (try? decodeIfPresent(Bool.self, forKey: key)) ?? nil {
+                return b ? "true" : "false"
+            }
         }
         return nil
     }
