@@ -57,16 +57,23 @@ struct CloudAccountsView: View {
         .overlay {
             if vm.isLoading { ProgressView("Loading…") }
             if let err = vm.error {
-                VStack(spacing: 8) {
+                VStack(spacing: 10) {
                     Image(systemName: "cloud.slash")
                         .font(.title2)
                         .foregroundColor(.secondary)
-                    Text(err)
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-                        .multilineTextAlignment(.center)
+                    ForEach(err.components(separatedBy: "\n"), id: \.self) { line in
+                        Text(line)
+                            .font(line.contains("Unable to load") ? .subheadline : .caption2)
+                            .foregroundColor(line.contains("Unable to load") ? .secondary : .orange)
+                            .multilineTextAlignment(.center)
+                            .lineLimit(3)
+                    }
+                    Button("Retry") { Task { await vm.load() } }
+                        .font(.caption.bold())
+                        .padding(.top, 4)
                 }
-                .padding(16)
+                .padding(20)
+                .frame(maxWidth: 340)
             }
         }
         .task { await vm.load() }

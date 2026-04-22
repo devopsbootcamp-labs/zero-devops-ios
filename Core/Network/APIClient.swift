@@ -119,7 +119,18 @@ final class APIClient {
     func discoverCloudAccountsDetailed() async -> CloudAccountDiscoveryResult {
         var diagnostics: [String] = []
 
-        let accountPaths = ["api/v1/accounts", "api/v1/cloud/accounts", "api/v1/cloud-accounts"]
+        // Preflight: ensure tenant context is populated so x-tenant-id is attached.
+        // Without a tenant header the backend may return 403 or an empty list.
+        await ensureTenantContextPreflight(diagnostics: &diagnostics)
+
+        // Ordered attempt: wrapped decode → direct array → raw JSON parse.
+        // Only use dedicated cloud-account endpoints — never parse deployment/resource
+        // payloads as accounts (that creates fake rows with deployment names).
+        let accountPaths = [
+            "api/v1/cloud/accounts",  // primary — matches Android ZeroDevOpsApi order
+            "api/v1/accounts",
+            "api/v1/cloud-accounts",
+        ]
         for path in accountPaths {
             do {
                 let wrapped: CloudAccountsResponse = try await get(path)
@@ -135,12 +146,12 @@ final class APIClient {
             do {
                 let list: [CloudAccount] = try await get(path)
                 let resolved = deduplicateAccounts(list)
-                diagnostics.append("\(path) list: \(resolved.count)")
+                diagnostics.append("\(path) direct: \(resolved.count)")
                 if !resolved.isEmpty {
                     return CloudAccountDiscoveryResult(accounts: resolved, diagnostics: diagnostics)
                 }
             } catch {
-                diagnostics.append("\(path) list failed: \(error.localizedDescription)")
+                diagnostics.append("\(path) direct failed: \(error.localizedDescription)")
             }
 
             do {
@@ -155,25 +166,9 @@ final class APIClient {
             }
         }
 
-        let accountLikePaths = [
-            "api/v1/cloud/inventory",
-            "api/v1/inventory",
-            "api/v1/resources",
-            "api/v1/deployments?limit=500",
-        ]
-        for path in accountLikePaths {
-            do {
-                let raw = try await getJSON(path)
-                let parsed = deduplicateAccounts(parseAccounts(from: raw))
-                diagnostics.append("\(path) account-like raw: \(parsed.count)")
-                if !parsed.isEmpty {
-                    return CloudAccountDiscoveryResult(accounts: parsed, diagnostics: diagnostics)
-                }
-            } catch {
-                diagnostics.append("\(path) account-like failed: \(error.localizedDescription)")
-            }
-        }
-
+        // Final fallback: group tenant-wide deployments by their cloudAccountId to
+        // surface accounts that exist but whose account endpoint is unavailable.
+        // This uses actual account IDs from deployment metadata, NOT deployment names.
         do {
             let deployments = try await fetchDeploymentsScoped(accountId: nil, limit: 500)
             let derived = deduplicateAccounts(deriveAccounts(from: deployments))
@@ -186,6 +181,26 @@ final class APIClient {
         }
 
         return CloudAccountDiscoveryResult(accounts: [], diagnostics: diagnostics)
+    }
+
+    private func ensureTenantContextPreflight(diagnostics: inout [String]) async {
+        guard sessionManager.currentTenantId() == nil else {
+            diagnostics.append("tenant: already set")
+            return
+        }
+        let profilePaths = ["api/v1/auth/me", "api/v1/auth/userinfo", "api/v1/users/me", "api/v1/auth/profile", "api/v1/me"]
+        for path in profilePaths {
+            if let profile: UserProfile = try? await get(path) {
+                let tid = profile.tenantId?.trimmingCharacters(in: .whitespacesAndNewlines)
+                let aid = (profile.cloudAccountId ?? profile.accountId)?.trimmingCharacters(in: .whitespacesAndNewlines)
+                if let tid, !tid.isEmpty {
+                    sessionManager.updateRequestContext(tenantId: tid, accountId: aid?.isEmpty == false ? aid : sessionManager.currentAccountId())
+                    diagnostics.append("tenant from \(path): \(tid)")
+                    return
+                }
+            }
+        }
+        diagnostics.append("tenant: not resolved from profile")
     }
 
     /// Mirrors Android `fetchDeploymentsScoped`: prefer account-scoped endpoints, then fallback.
