@@ -131,38 +131,67 @@ final class APIClient {
             "api/v1/accounts",
             "api/v1/cloud-accounts",
         ]
-        for path in accountPaths {
-            do {
-                let wrapped: CloudAccountsResponse = try await get(path)
-                let resolved = deduplicateAccounts(wrapped.resolved)
-                diagnostics.append("\(path) wrapped: \(resolved.count)")
-                if !resolved.isEmpty {
-                    return CloudAccountDiscoveryResult(accounts: resolved, diagnostics: diagnostics)
+        var attemptedRefresh = false
+        for attempt in 0..<2 {
+            for path in accountPaths {
+                do {
+                    let wrapped: CloudAccountsResponse = try await get(path)
+                    let resolved = deduplicateAccounts(wrapped.resolved)
+                    diagnostics.append("\(path) wrapped: \(resolved.count)")
+                    if !resolved.isEmpty {
+                        return CloudAccountDiscoveryResult(accounts: resolved, diagnostics: diagnostics)
+                    }
+                } catch {
+                    diagnostics.append("\(path) wrapped failed: \(error.localizedDescription)")
+                    if !attemptedRefresh && isCloudReadDenied(error) {
+                        do {
+                            _ = try await sessionManager.refreshAccessToken()
+                            attemptedRefresh = true
+                            diagnostics.append("token refresh: success (retrying account endpoints)")
+                            break
+                        } catch {
+                            attemptedRefresh = true
+                            diagnostics.append("token refresh failed: \(error.localizedDescription)")
+                        }
+                    }
                 }
-            } catch {
-                diagnostics.append("\(path) wrapped failed: \(error.localizedDescription)")
+
+                do {
+                    let list: [CloudAccount] = try await get(path)
+                    let resolved = deduplicateAccounts(list)
+                    diagnostics.append("\(path) direct: \(resolved.count)")
+                    if !resolved.isEmpty {
+                        return CloudAccountDiscoveryResult(accounts: resolved, diagnostics: diagnostics)
+                    }
+                } catch {
+                    diagnostics.append("\(path) direct failed: \(error.localizedDescription)")
+                }
+
+                do {
+                    let raw = try await getJSON(path)
+                    let parsed = deduplicateAccounts(parseAccounts(from: raw))
+                    diagnostics.append("\(path) raw: \(parsed.count)")
+                    if !parsed.isEmpty {
+                        return CloudAccountDiscoveryResult(accounts: parsed, diagnostics: diagnostics)
+                    }
+                } catch {
+                    diagnostics.append("\(path) raw failed: \(error.localizedDescription)")
+                }
             }
 
-            do {
-                let list: [CloudAccount] = try await get(path)
-                let resolved = deduplicateAccounts(list)
-                diagnostics.append("\(path) direct: \(resolved.count)")
-                if !resolved.isEmpty {
-                    return CloudAccountDiscoveryResult(accounts: resolved, diagnostics: diagnostics)
-                }
-            } catch {
-                diagnostics.append("\(path) direct failed: \(error.localizedDescription)")
+            if attempt == 0 && !attemptedRefresh {
+                continue
             }
+        }
 
-            do {
-                let raw = try await getJSON(path)
+        // Parse profile payloads for account-like claim lists when account APIs are RBAC denied.
+        for path in ["api/v1/auth/me", "api/v1/users/me", "api/v1/me"] {
+            if let raw = try? await getJSON(path) {
                 let parsed = deduplicateAccounts(parseAccounts(from: raw))
-                diagnostics.append("\(path) raw: \(parsed.count)")
+                diagnostics.append("\(path) account-claims: \(parsed.count)")
                 if !parsed.isEmpty {
                     return CloudAccountDiscoveryResult(accounts: parsed, diagnostics: diagnostics)
                 }
-            } catch {
-                diagnostics.append("\(path) raw failed: \(error.localizedDescription)")
             }
         }
 
@@ -181,6 +210,14 @@ final class APIClient {
         }
 
         return CloudAccountDiscoveryResult(accounts: [], diagnostics: diagnostics)
+    }
+
+    private func isCloudReadDenied(_ error: Error) -> Bool {
+        let text = error.localizedDescription.lowercased()
+        return text.contains("cloud.read")
+            || text.contains("rbac")
+            || text.contains("access denied")
+            || text.contains("resource_access")
     }
 
     private func ensureTenantContextPreflight(diagnostics: inout [String]) async {
