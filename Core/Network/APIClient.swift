@@ -660,6 +660,10 @@ final class APIClient {
         if normalized.hasPrefix("/api/v1/cloud/accounts") { return false }
         if normalized.hasPrefix("/api/v1/cloud-accounts") { return false }
         if normalized.hasPrefix("/api/v1/accounts") { return false }
+        if normalized.hasPrefix("/api/v1/auth") { return false }
+        if normalized.hasPrefix("/api/v1/users") { return false }
+        if normalized == "/api/v1/me" { return false }
+        if normalized.hasPrefix("/api/v1/tenants") { return false }
         if normalized.hasPrefix("/api/v1/analytics") { return false }
         if normalized.hasPrefix("/api/v1/chat") { return false }
         if normalized.hasPrefix("/api/v1/dashboard") { return false }
