@@ -8,6 +8,6 @@ enum AppConfig {
     static let oidcAudience        = "cloudblueprints-api"
     static let oidcRedirectURI     = "com.devopsbootcamp.app://callback"
     static let oidcPostLogoutURI   = "com.devopsbootcamp.app://logout"
-    // Request roles explicitly so tokens consistently include RBAC claims.
-    static let oidcScopes          = ["openid", "profile", "email", "roles", "offline_access"]
+    // Keycloak automatically includes realm_access.roles in token; "roles" scope not needed and may cause rejection.
+    static let oidcScopes          = ["openid", "profile", "email", "offline_access"]
 }
