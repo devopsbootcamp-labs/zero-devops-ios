@@ -19,25 +19,56 @@ final class CloudAccountsViewModel: ObservableObject {
         diagnostics = discovery.diagnostics
 
         if accounts.isEmpty {
-            // Build a user-readable error that surfaces exactly which endpoints were
-            // tried and why they failed, so the root cause can be identified quickly.
-            let failures = diagnostics.filter { $0.contains("failed") }
-            let successes = diagnostics.filter { !$0.contains("failed") }
-            var lines: [String] = ["Unable to load cloud accounts from API."]
-            if let tenantLine = diagnostics.first(where: { $0 == "tenant: already set" || $0.hasPrefix("tenant from ") }) {
-                lines.append(tenantLine)
-            }
-            if let firstFailure = failures.first {
-                lines.append(firstFailure)
-            }
-            if let successLine = successes.first(where: { $0.contains("0") && !$0.contains("tenant") }) {
-                lines.append(successLine)
-            }
-            error = lines.joined(separator: "\n")
+            error = buildErrorMessage(diagnostics: discovery.diagnostics)
         } else {
             error = nil
         }
         isLoading = false
+    }
+
+    private func buildErrorMessage(diagnostics: [String]) -> String {
+        let allFailures = diagnostics.filter { $0.contains("failed") }
+        let diagnosticText = allFailures.joined(separator: " ").lowercased()
+
+        // RBAC / permission denial
+        if diagnosticText.contains("cloud.read")
+            || diagnosticText.contains("rbac")
+            || diagnosticText.contains("access denied")
+            || diagnosticText.contains("403")
+            || diagnosticText.contains("forbidden") {
+            return "Permission denied: your account does not have the cloud.read permission.\n" +
+                   "Contact your administrator to grant you access to cloud accounts."
+        }
+
+        // Authentication failure
+        if diagnosticText.contains("401")
+            || diagnosticText.contains("unauthorized")
+            || diagnosticText.contains("unauthenticated") {
+            return "Session expired. Please sign out and sign in again to refresh your credentials."
+        }
+
+        // Network / connectivity
+        if diagnosticText.contains("network")
+            || diagnosticText.contains("offline")
+            || diagnosticText.contains("timed out")
+            || diagnosticText.contains("connection") {
+            return "Cannot reach the server. Check your internet connection and try again."
+        }
+
+        // All endpoints returned empty (no error, but no accounts found)
+        let hasOnlyEmpty = !allFailures.isEmpty && diagnostics.allSatisfy {
+            !$0.contains("failed") || $0.hasSuffix("0")
+        }
+        if hasOnlyEmpty || allFailures.isEmpty {
+            return "No cloud accounts found for your tenant.\n" +
+                   "Ask your administrator to connect a cloud account in the web console."
+        }
+
+        // Generic: surface first actionable failure line
+        if let first = allFailures.first {
+            return "Unable to load cloud accounts.\n\(first)"
+        }
+        return "Unable to load cloud accounts from the API. Pull to retry."
     }
 
 }

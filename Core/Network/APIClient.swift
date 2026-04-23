@@ -179,8 +179,10 @@ final class APIClient {
                 }
             }
 
+            // If no refresh was done on attempt 0, the second pass would produce the
+            // same failures — skip it and proceed to the profile/inventory fallbacks.
             if attempt == 0 && !attemptedRefresh {
-                continue
+                break
             }
         }
 
@@ -234,6 +236,8 @@ final class APIClient {
             || text.contains("rbac")
             || text.contains("access denied")
             || text.contains("resource_access")
+            || text.contains("forbidden")
+            || text.contains("http 403")
     }
 
     private func ensureTenantContextPreflight(diagnostics: inout [String]) async {
