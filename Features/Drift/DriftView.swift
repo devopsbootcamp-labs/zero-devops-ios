@@ -6,64 +6,62 @@ struct DriftView: View {
     @StateObject private var vm = DriftViewModel()
 
     var body: some View {
-        NavigationView {
-            VStack(spacing: 0) {
-                // Posture banner
-                if let posture = vm.posture {
-                    PostureBanner(posture: posture)
-                }
+        VStack(spacing: 0) {
+            // Posture banner
+            if let posture = vm.posture {
+                PostureBanner(posture: posture)
+            }
 
-                if let result = vm.triggerResult {
-                    Text(result)
+            if let result = vm.triggerResult {
+                Text(result)
+                    .font(.caption)
+                    .foregroundColor(.blue)
+                    .padding(8)
+                    .background(Color.blue.opacity(0.08))
+                    .cornerRadius(8)
+                    .padding(.horizontal)
+            }
+
+            List(vm.items) { item in
+                DriftItemRow(
+                    item:         item,
+                    name:         vm.nameMap[item.deploymentId] ?? item.deploymentId,
+                    onTrigger:    { Task { await vm.triggerCheck(deploymentId: item.deploymentId) } }
+                )
+            }
+            .listStyle(.plain)
+        }
+        .navigationTitle("Drift")
+        .toolbar {
+            ToolbarItemGroup(placement: .navigationBarTrailing) {
+                Button { Task { await vm.runAllChecks() } } label: {
+                    Label("Run All", systemImage: "play.fill")
                         .font(.caption)
-                        .foregroundColor(.blue)
-                        .padding(8)
-                        .background(Color.blue.opacity(0.08))
-                        .cornerRadius(8)
-                        .padding(.horizontal)
                 }
-
-                List(vm.items) { item in
-                    DriftItemRow(
-                        item:         item,
-                        name:         vm.nameMap[item.deploymentId] ?? item.deploymentId,
-                        onTrigger:    { Task { await vm.triggerCheck(deploymentId: item.deploymentId) } }
-                    )
-                }
-                .listStyle(.plain)
-            }
-            .navigationTitle("Drift")
-            .toolbar {
-                ToolbarItemGroup(placement: .navigationBarTrailing) {
-                    Button { Task { await vm.runAllChecks() } } label: {
-                        Label("Run All", systemImage: "play.fill")
-                            .font(.caption)
-                    }
-                    Button { Task { await vm.load(accountId: container.selectedAccountId) } } label: {
-                        Image(systemName: "arrow.clockwise")
-                    }
+                Button { Task { await vm.load(accountId: container.selectedAccountId) } } label: {
+                    Image(systemName: "arrow.clockwise")
                 }
             }
-            .overlay {
-                if vm.isLoading && vm.items.isEmpty { ProgressView("Loading…") }
-                if let err = vm.error {
-                    VStack(spacing: 8) {
-                        Image(systemName: "ant")
-                            .font(.title2)
-                            .foregroundColor(.secondary)
-                        Text(err)
-                            .font(.subheadline)
-                            .foregroundColor(.secondary)
-                            .multilineTextAlignment(.center)
-                    }
-                    .padding(16)
+        }
+        .overlay {
+            if vm.isLoading && vm.items.isEmpty { ProgressView("Loading…") }
+            if let err = vm.error {
+                VStack(spacing: 8) {
+                    Image(systemName: "ant")
+                        .font(.title2)
+                        .foregroundColor(.secondary)
+                    Text(err)
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
                 }
+                .padding(16)
             }
-            .task { await vm.load(accountId: container.selectedAccountId) }
-            .refreshable { await vm.load(accountId: container.selectedAccountId) }
-            .onChange(of: container.selectedAccountId) { _ in
-                Task { await vm.load(accountId: container.selectedAccountId) }
-            }
+        }
+        .task { await vm.load(accountId: container.selectedAccountId) }
+        .refreshable { await vm.load(accountId: container.selectedAccountId) }
+        .onChange(of: container.selectedAccountId) { _ in
+            Task { await vm.load(accountId: container.selectedAccountId) }
         }
     }
 }
@@ -116,23 +114,25 @@ private struct DriftItemRow: View {
 
     var body: some View {
         HStack {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(name).font(.subheadline.weight(.medium))
-                HStack(spacing: 8) {
-                    StatusChip(status: item.driftDisplayStatus)
-                    if let severity = item.severity {
-                        Text(severity.capitalized)
-                            .font(.caption2)
-                            .padding(.horizontal, 6).padding(.vertical, 2)
-                            .background(Color.red.opacity(0.1))
-                            .foregroundColor(.red)
-                            .cornerRadius(4)
+            NavigationLink(value: AppRoute.deploymentDetail(id: item.deploymentId)) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(name).font(.subheadline.weight(.medium))
+                    HStack(spacing: 8) {
+                        StatusChip(status: item.driftDisplayStatus)
+                        if let severity = item.severity {
+                            Text(severity.capitalized)
+                                .font(.caption2)
+                                .padding(.horizontal, 6).padding(.vertical, 2)
+                                .background(Color.red.opacity(0.1))
+                                .foregroundColor(.red)
+                                .cornerRadius(4)
+                        }
                     }
-                }
-                if let last = item.lastCheckedAt {
-                    Text("Checked \(last.formatted(.relative(presentation: .named)))")
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
+                    if let last = item.lastCheckedAt {
+                        Text("Checked \(last.formatted(.relative(presentation: .named)))")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
                 }
             }
             Spacer()

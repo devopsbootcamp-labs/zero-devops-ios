@@ -5,47 +5,44 @@ import SwiftUI
 struct DeploymentsView: View {
     @EnvironmentObject private var container: AppContainer
     @StateObject private var vm = DeploymentsViewModel()
-    @State private var navPath  = NavigationPath()
 
     var body: some View {
-        NavigationStack(path: $navPath) {
-            List(vm.deployments) { dep in
-                NavigationLink(value: dep.id) {
-                    DeploymentListRow(deployment: dep)
-                }
+        List(vm.deployments) { dep in
+            NavigationLink(value: AppRoute.deploymentDetail(id: dep.id)) {
+                DeploymentListRow(deployment: dep)
             }
-            .navigationTitle("Deployments")
-            .navigationDestination(for: String.self) { id in
-                DeploymentDetailView(deploymentId: id)
-            }
-            .overlay {
-                if vm.isLoading { ProgressView("Loading…") }
-                if let err = vm.error {
-                    VStack(spacing: 8) {
-                        Image(systemName: "server.rack")
-                            .font(.title2)
-                            .foregroundColor(.secondary)
-                        Text(err)
-                            .font(.subheadline)
-                            .foregroundColor(.secondary)
-                            .multilineTextAlignment(.center)
-                    }
-                    .padding(16)
+        }
+        .navigationTitle("Deployments")
+        .overlay {
+            if vm.isLoading { ProgressView("Loading…") }
+            if let err = vm.error {
+                VStack(spacing: 8) {
+                    Image(systemName: "server.rack")
+                        .font(.title2)
+                        .foregroundColor(.secondary)
+                    Text(err)
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
                 }
-                if !vm.isLoading && vm.deployments.isEmpty && vm.error == nil {
-                    VStack(spacing: 8) {
-                        Image(systemName: "server.rack")
-                            .font(.title2)
-                            .foregroundColor(.secondary)
-                        Text("No Deployments")
-                            .font(.subheadline)
-                            .foregroundColor(.secondary)
-                    }
-                    .padding(16)
-                }
+                .padding(16)
             }
-            .task { await vm.load(accountId: container.selectedAccountId) }
-            .refreshable { await vm.load(accountId: container.selectedAccountId) }
+            if !vm.isLoading && vm.deployments.isEmpty && vm.error == nil {
+                VStack(spacing: 8) {
+                    Image(systemName: "server.rack")
+                        .font(.title2)
+                        .foregroundColor(.secondary)
+                    Text("No Deployments")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                }
+                .padding(16)
+            }
+        }
+        .task { await vm.load(accountId: container.selectedAccountId) }
+        .refreshable { await vm.load(accountId: container.selectedAccountId) }
+        .onChange(of: container.selectedAccountId) { _ in
+            Task { await vm.load(accountId: container.selectedAccountId) }
         }
     }
 }
@@ -104,6 +101,9 @@ struct ResourcesView: View {
         }
         .task { await vm.load(accountId: container.selectedAccountId) }
         .refreshable { await vm.load(accountId: container.selectedAccountId) }
+        .onChange(of: container.selectedAccountId) { _ in
+            Task { await vm.load(accountId: container.selectedAccountId) }
+        }
     }
 }
 
@@ -233,5 +233,8 @@ struct CostView: View {
         .overlay { if vm.isLoading { ProgressView("Loading…") } }
         .task { await vm.load(accountId: container.selectedAccountId) }
         .refreshable { await vm.load(accountId: container.selectedAccountId) }
+        .onChange(of: container.selectedAccountId) { _ in
+            Task { await vm.load(accountId: container.selectedAccountId) }
+        }
     }
 }

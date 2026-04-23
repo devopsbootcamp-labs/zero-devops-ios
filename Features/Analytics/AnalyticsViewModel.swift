@@ -19,19 +19,28 @@ final class AnalyticsViewModel: ObservableObject {
 
     private let api = APIClient.shared
 
-    func load() async {
+    func load(accountId: String? = nil) async {
         isLoading = true
         error     = nil
 
-        async let ov   = tryGet(AnalyticsOverview.self,    path: "api/v1/analytics/overview?range=\(range)")
-        async let perf = tryGet(AnalyticsPerformance.self, path: "api/v1/analytics/performance?range=\(range)")
-        async let tr   = tryGetList(AnalyticsTrend.self,   path: "api/v1/analytics/trends?range=\(range)")
-        async let prov = tryGetList(AnalyticsProvider.self, path: "api/v1/analytics/providers?range=\(range)")
-        async let bp   = tryGetList(AnalyticsBlueprint.self, path: "api/v1/analytics/blueprints?range=\(range)")
-        async let fail = tryGetList(AnalyticsFailure.self,  path: "api/v1/analytics/failures?range=\(range)")
-        async let act  = tryGetList(AnalyticsActivity.self, path: "api/v1/analytics/activity?limit=15")
-        async let ins  = tryGetList(AnalyticsInsight.self,  path: "api/v1/analytics/insights")
-        async let intl = tryGet(AnalyticsIntelligence.self, path: "api/v1/analytics/intelligence?range=\(range)")
+        // Build optional account scope suffix for query strings.
+        let scopeParam: String = {
+            guard let id = accountId,
+                  let enc = id.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed)
+            else { return "" }
+            return "&account_id=\(enc)"
+        }()
+        let insightsQuery = scopeParam.isEmpty ? "" : "?account_id=\(accountId!.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? accountId!)"
+
+        async let ov   = tryGet(AnalyticsOverview.self,    path: "api/v1/analytics/overview?range=\(range)\(scopeParam)")
+        async let perf = tryGet(AnalyticsPerformance.self, path: "api/v1/analytics/performance?range=\(range)\(scopeParam)")
+        async let tr   = tryGetList(AnalyticsTrend.self,   path: "api/v1/analytics/trends?range=\(range)\(scopeParam)")
+        async let prov = tryGetList(AnalyticsProvider.self, path: "api/v1/analytics/providers?range=\(range)\(scopeParam)")
+        async let bp   = tryGetList(AnalyticsBlueprint.self, path: "api/v1/analytics/blueprints?range=\(range)\(scopeParam)")
+        async let fail = tryGetList(AnalyticsFailure.self,  path: "api/v1/analytics/failures?range=\(range)\(scopeParam)")
+        async let act  = tryGetList(AnalyticsActivity.self, path: "api/v1/analytics/activity?limit=15\(scopeParam)")
+        async let ins  = tryGetList(AnalyticsInsight.self,  path: "api/v1/analytics/insights\(insightsQuery)")
+        async let intl = tryGet(AnalyticsIntelligence.self, path: "api/v1/analytics/intelligence?range=\(range)\(scopeParam)")
         async let acc  = loadAccounts()
 
         let overviewValue = await ov

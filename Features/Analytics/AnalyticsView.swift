@@ -8,16 +8,15 @@ struct AnalyticsView: View {
     private let ranges = ["7d", "30d", "90d"]
 
     var body: some View {
-        NavigationView {
-            ScrollView {
-                LazyVStack(spacing: 16) {
-                    // Range picker
-                    Picker("Range", selection: $vm.range) {
-                        ForEach(ranges, id: \.self) { Text($0) }
-                    }
-                    .pickerStyle(.segmented)
-                    .padding(.horizontal)
-                    .onChange(of: vm.range) { _ in Task { await vm.load() } }
+        ScrollView {
+            LazyVStack(spacing: 16) {
+                // Range picker
+                Picker("Range", selection: $vm.range) {
+                    ForEach(ranges, id: \.self) { Text($0) }
+                }
+                .pickerStyle(.segmented)
+                .padding(.horizontal)
+                .onChange(of: vm.range) { _ in Task { await vm.load(accountId: container.selectedAccountId) } }
 
                     // Overview KPIs
                     if let ov = vm.overview {
@@ -67,17 +66,19 @@ struct AnalyticsView: View {
                     if !vm.accounts.isEmpty {
                         GroupBox(label: Label("Accounts", systemImage: "building.2")) {
                             ForEach(vm.accounts.prefix(8), id: \.stableId) { account in
-                                HStack {
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(account.resolvedName).font(.subheadline.weight(.medium))
-                                        Text(account.resolvedProvider + (account.resolvedRegion.isEmpty ? "" : "  ·  \(account.resolvedRegion)"))
-                                            .font(.caption)
+                                NavigationLink(value: AppRoute.accountWorkspace(accountId: account.resolvedScopeId, accountName: account.resolvedName)) {
+                                    HStack {
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(account.resolvedName).font(.subheadline.weight(.medium))
+                                            Text(account.resolvedProvider + (account.resolvedRegion.isEmpty ? "" : "  ·  \(account.resolvedRegion)"))
+                                                .font(.caption)
+                                                .foregroundColor(.secondary)
+                                        }
+                                        Spacer()
+                                        Text(account.requestScopeId ?? account.stableId)
+                                            .font(.caption2)
                                             .foregroundColor(.secondary)
                                     }
-                                    Spacer()
-                                    Text(account.requestScopeId ?? account.stableId)
-                                        .font(.caption2)
-                                        .foregroundColor(.secondary)
                                 }
                                 Divider()
                             }
@@ -187,9 +188,11 @@ struct AnalyticsView: View {
                     .padding(16)
                 }
             }
-            .task { await vm.load() }
-            .refreshable { await vm.load() }
-        }
+            .task { await vm.load(accountId: container.selectedAccountId) }
+            .refreshable { await vm.load(accountId: container.selectedAccountId) }
+            .onChange(of: container.selectedAccountId) { _ in
+                Task { await vm.load(accountId: container.selectedAccountId) }
+            }
     }
 
     private func severityIcon(_ s: String?) -> String {
