@@ -86,7 +86,8 @@ final class APIClient {
         do {
             try validate(response: response, data: data)
             return try JSONSerialization.jsonObject(with: data)
-        } catch APIError.httpError(let statusCode, _) where statusCode == 401 {
+        } catch APIError.httpError(let statusCode, let message)
+            where statusCode == 401 || (statusCode == 403 && isCloudReadDeniedMessage(message)) {
             _ = try await sessionManager.refreshAccessToken()
             let retry = try buildRequest(method: "GET", path: path, body: Optional<EmptyBody>.none, useFreshToken: true)
             let (retryData, retryResponse) = try await urlSession.data(for: retry)
@@ -232,6 +233,11 @@ final class APIClient {
 
     private func isCloudReadDenied(_ error: Error) -> Bool {
         let text = error.localizedDescription.lowercased()
+        return isCloudReadDeniedMessage(text)
+    }
+
+    private func isCloudReadDeniedMessage(_ message: String) -> Bool {
+        let text = message.lowercased()
         return text.contains("cloud.read")
             || text.contains("rbac")
             || text.contains("access denied")
@@ -616,7 +622,8 @@ final class APIClient {
         do {
             try validate(response: response, data: data)
             return try decodeAny(data)
-        } catch APIError.httpError(let statusCode, _) where statusCode == 401 {
+        } catch APIError.httpError(let statusCode, let message)
+            where statusCode == 401 || (statusCode == 403 && isCloudReadDeniedMessage(message)) {
             // Mirror Android TokenRefreshAuthenticator behavior: refresh once and retry.
             _ = try await sessionManager.refreshAccessToken()
             let retry = try buildRequest(method: method, path: path, body: body, useFreshToken: true)
