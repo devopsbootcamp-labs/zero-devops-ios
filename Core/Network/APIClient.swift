@@ -311,6 +311,43 @@ final class APIClient {
         if let wrapped: ListResponse<Resource> = try? await get("api/v1/inventory") { return wrapped.resolved }
         return []
     }
+
+    func fetchResourcesScoped(accountId: String?) async throws -> [Resource] {
+        let scoped = accountId.flatMap {
+            let trimmed = $0.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+
+        var lastError: Error?
+        if let scoped, let encodedId = Self.percentEncode(scoped) {
+            let scopedPaths = [
+                "api/v1/cloud-accounts/\(encodedId)/resources",
+                "api/v1/resources?cloud_account_id=\(encodedId)",
+                "api/v1/inventory?cloud_account_id=\(encodedId)"
+            ]
+            for path in scopedPaths {
+                do {
+                    return try await fetchResourceList(path: path)
+                } catch {
+                    lastError = error
+                }
+            }
+        }
+
+        let tenantPaths = [
+            "api/v1/resources",
+            "api/v1/inventory"
+        ]
+        for path in tenantPaths {
+            do {
+                return try await fetchResourceList(path: path)
+            } catch {
+                lastError = error
+            }
+        }
+
+        throw lastError ?? APIError.invalidResponse
+    }
     
     /// Percent-encode path component for URL safety (RFC 3986).
     private static func percentEncode(_ component: String) -> String? {
@@ -491,6 +528,12 @@ final class APIClient {
             let parsed = parseDeployments(from: raw)
             if !parsed.isEmpty { return parsed }
         }
+        throw APIError.invalidResponse
+    }
+
+    private func fetchResourceList(path: String) async throws -> [Resource] {
+        if let list: [Resource] = try? await get(path) { return list }
+        if let wrapped: ListResponse<Resource> = try? await get(path) { return wrapped.resolved }
         throw APIError.invalidResponse
     }
 

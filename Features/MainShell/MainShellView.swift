@@ -47,6 +47,8 @@ struct MainShellView: View {
                     DeploymentsView()
                 case .resources:
                     ResourcesView()
+                case .resourcesByType(let type):
+                    ResourcesView(resourceTypeFilter: type)
                 case .resourceDetail(let deploymentId, let resourceId):
                     ResourceDetailView(deploymentId: deploymentId, resourceId: resourceId)
                 case .cost:
@@ -71,6 +73,7 @@ enum AppRoute: Hashable {
     case deploymentDetail(id: String)
     case deployments
     case resources
+    case resourcesByType(type: String)
     case resourceDetail(deploymentId: String, resourceId: String)
     case cost
     case chat

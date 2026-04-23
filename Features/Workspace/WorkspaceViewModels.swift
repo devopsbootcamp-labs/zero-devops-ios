@@ -42,7 +42,7 @@ final class ResourcesViewModel: ObservableObject {
         error     = nil
         var lastError: Error?
         do {
-            resources = try await api.fetchResourcesList()
+            resources = try await api.fetchResourcesScoped(accountId: accountId)
             isLoading = false
             return
         } catch {

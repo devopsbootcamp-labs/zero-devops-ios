@@ -78,12 +78,30 @@ private struct DeploymentListRow: View {
 struct ResourcesView: View {
     @EnvironmentObject private var container: AppContainer
     @StateObject private var vm = ResourcesViewModel()
+    let resourceTypeFilter: String?
+
+    init(resourceTypeFilter: String? = nil) {
+        self.resourceTypeFilter = resourceTypeFilter
+    }
+
+    private var filteredResources: [Resource] {
+        guard let filter = resourceTypeFilter?.trimmingCharacters(in: .whitespacesAndNewlines), !filter.isEmpty else {
+            return vm.resources
+        }
+        return vm.resources.filter { ($0.type ?? "").localizedCaseInsensitiveContains(filter) }
+    }
 
     var body: some View {
-        List(vm.resources, id: \.stableId) { res in
-            ResourceListRow(resource: res)
+        List(filteredResources, id: \.stableId) { res in
+            if let destination = resourceRoute(for: res) {
+                NavigationLink(value: destination) {
+                    ResourceListRow(resource: res)
+                }
+            } else {
+                ResourceListRow(resource: res)
+            }
         }
-        .navigationTitle("Resources")
+        .navigationTitle(resourceTypeFilter?.isEmpty == false ? resourceTypeFilter! : "Resources")
         .overlay {
             if vm.isLoading { ProgressView("Loading…") }
             if let err = vm.error {
@@ -98,12 +116,36 @@ struct ResourcesView: View {
                 }
                 .padding(16)
             }
+            if !vm.isLoading && filteredResources.isEmpty && vm.error == nil {
+                VStack(spacing: 8) {
+                    Image(systemName: "cube.box")
+                        .font(.title2)
+                        .foregroundColor(.secondary)
+                    Text(resourceTypeFilter?.isEmpty == false ? "No matching resources" : "No Resources")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                }
+                .padding(16)
+            }
         }
         .task { await vm.load(accountId: container.selectedAccountId) }
         .refreshable { await vm.load(accountId: container.selectedAccountId) }
         .onChange(of: container.selectedAccountId) { _ in
             Task { await vm.load(accountId: container.selectedAccountId) }
         }
+    }
+
+    private func resourceRoute(for resource: Resource) -> AppRoute? {
+        let deploymentId = resource.deploymentId?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let resourceId = (resource.id ?? resource.resourceId)?.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if let deploymentId, !deploymentId.isEmpty, let resourceId, !resourceId.isEmpty {
+            return .resourceDetail(deploymentId: deploymentId, resourceId: resourceId)
+        }
+        if let deploymentId, !deploymentId.isEmpty {
+            return .deploymentDetail(id: deploymentId)
+        }
+        return nil
     }
 }
 
@@ -198,13 +240,16 @@ struct CostView: View {
                 if !vm.resources.isEmpty {
                     GroupBox(label: Label("By Resource Type", systemImage: "cube.box")) {
                         ForEach(vm.resources) { r in
-                            HStack {
-                                Text(r.resourceType).font(.subheadline)
-                                Spacer()
-                                Text(String(format: "$%.2f", r.monthlyCost ?? 0))
-                                    .font(.subheadline.weight(.medium))
-                                    .foregroundColor(.green)
+                            NavigationLink(value: AppRoute.resourcesByType(type: r.resourceType)) {
+                                HStack {
+                                    Text(r.resourceType).font(.subheadline)
+                                    Spacer()
+                                    Text(String(format: "$%.2f", r.monthlyCost ?? 0))
+                                        .font(.subheadline.weight(.medium))
+                                        .foregroundColor(.green)
+                                }
                             }
+                            .buttonStyle(.plain)
                             Divider()
                         }
                     }
@@ -214,12 +259,25 @@ struct CostView: View {
                 if !vm.deployments.isEmpty {
                     GroupBox(label: Label("By Deployment", systemImage: "server.rack")) {
                         ForEach(vm.deployments) { d in
-                            HStack {
-                                Text(d.deploymentName ?? d.deploymentId ?? "—").font(.subheadline)
-                                Spacer()
-                                Text(String(format: "$%.2f", d.monthlyCost ?? 0))
-                                    .font(.subheadline.weight(.medium))
-                                    .foregroundColor(.green)
+                            if let deploymentId = d.deploymentId?.trimmingCharacters(in: .whitespacesAndNewlines), !deploymentId.isEmpty {
+                                NavigationLink(value: AppRoute.deploymentDetail(id: deploymentId)) {
+                                    HStack {
+                                        Text(d.deploymentName ?? d.deploymentId ?? "—").font(.subheadline)
+                                        Spacer()
+                                        Text(String(format: "$%.2f", d.monthlyCost ?? 0))
+                                            .font(.subheadline.weight(.medium))
+                                            .foregroundColor(.green)
+                                    }
+                                }
+                                .buttonStyle(.plain)
+                            } else {
+                                HStack {
+                                    Text(d.deploymentName ?? d.deploymentId ?? "—").font(.subheadline)
+                                    Spacer()
+                                    Text(String(format: "$%.2f", d.monthlyCost ?? 0))
+                                        .font(.subheadline.weight(.medium))
+                                        .foregroundColor(.green)
+                                }
                             }
                             Divider()
                         }
