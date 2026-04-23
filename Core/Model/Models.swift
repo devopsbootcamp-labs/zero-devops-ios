@@ -7,6 +7,7 @@ struct CloudAccount: Decodable, Identifiable, Hashable {
     let id:               String?
     let cloudAccountId:   String?
     let accountId:        String?
+    let accountIdentifier: String?
     let externalAccountId: String?
     let cloudAccountName: String?
     let displayName:      String?
@@ -15,6 +16,7 @@ struct CloudAccount: Decodable, Identifiable, Hashable {
     let cloudProvider:    String?
     let region:           String?
     let defaultRegion:    String?
+    let regionDefault:    String?
     let status:           String?
     let tenantId:         String?
 
@@ -22,10 +24,10 @@ struct CloudAccount: Decodable, Identifiable, Hashable {
         case id, cloudAccountId, accountId, externalAccountId
         case cloudAccountName, displayName, name
         case provider, cloudProvider, region, defaultRegion, status
-        case tenantId
+        case tenantId, accountIdentifier, regionDefault
         case cloud_account_id, account_id, external_account_id
         case cloud_account_name, display_name, cloud_provider, default_region
-        case tenant_id
+        case tenant_id, account_identifier, region_default
     }
 
     init(from decoder: Decoder) throws {
@@ -33,6 +35,7 @@ struct CloudAccount: Decodable, Identifiable, Hashable {
         id = c.decodeLossyString([.id])
         cloudAccountId = c.decodeLossyString([.cloudAccountId, .cloud_account_id])
         accountId = c.decodeLossyString([.accountId, .account_id])
+        accountIdentifier = c.decodeLossyString([.accountIdentifier, .account_identifier])
         externalAccountId = c.decodeLossyString([.externalAccountId, .external_account_id])
         cloudAccountName = c.decodeLossyString([.cloudAccountName, .cloud_account_name])
         displayName = c.decodeLossyString([.displayName, .display_name])
@@ -41,6 +44,7 @@ struct CloudAccount: Decodable, Identifiable, Hashable {
         cloudProvider = c.decodeLossyString([.cloudProvider, .cloud_provider])
         region = c.decodeLossyString([.region])
         defaultRegion = c.decodeLossyString([.defaultRegion, .default_region])
+        regionDefault = c.decodeLossyString([.regionDefault, .region_default])
         status = c.decodeLossyString([.status])
         tenantId = c.decodeLossyString([.tenantId, .tenant_id])
     }
@@ -49,6 +53,7 @@ struct CloudAccount: Decodable, Identifiable, Hashable {
         id: String?,
         cloudAccountId: String?,
         accountId: String?,
+        accountIdentifier: String?,
         externalAccountId: String?,
         cloudAccountName: String?,
         displayName: String?,
@@ -57,12 +62,14 @@ struct CloudAccount: Decodable, Identifiable, Hashable {
         cloudProvider: String?,
         region: String?,
         defaultRegion: String?,
+        regionDefault: String?,
         status: String?,
         tenantId: String?
     ) {
         self.id = id
         self.cloudAccountId = cloudAccountId
         self.accountId = accountId
+        self.accountIdentifier = accountIdentifier
         self.externalAccountId = externalAccountId
         self.cloudAccountName = cloudAccountName
         self.displayName = displayName
@@ -71,6 +78,7 @@ struct CloudAccount: Decodable, Identifiable, Hashable {
         self.cloudProvider = cloudProvider
         self.region = region
         self.defaultRegion = defaultRegion
+        self.regionDefault = regionDefault
         self.status = status
         self.tenantId = tenantId
     }
@@ -88,11 +96,12 @@ struct CloudAccount: Decodable, Identifiable, Hashable {
     }
 
     var requestScopeId: String? {
-        normalizedIdentifier([cloudAccountId, id, accountId, externalAccountId])
+        // Match web routing: v1 uses cloudAccountId, v2 uses UUID id.
+        normalizedIdentifier([cloudAccountId, id, accountIdentifier, accountId, externalAccountId])
     }
 
     var requestAccountId: String? {
-        normalizedIdentifier([accountId, externalAccountId, cloudAccountId, id])
+        normalizedIdentifier([cloudAccountId, id, accountIdentifier, accountId, externalAccountId])
     }
 
     var resolvedScopeId: String {
@@ -108,7 +117,7 @@ struct CloudAccount: Decodable, Identifiable, Hashable {
         provider ?? cloudProvider ?? "Unknown"
     }
     var resolvedRegion: String {
-        region ?? defaultRegion ?? ""
+        region ?? regionDefault ?? defaultRegion ?? ""
     }
 
     // Identifiable conformance

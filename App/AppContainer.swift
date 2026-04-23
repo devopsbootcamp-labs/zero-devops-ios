@@ -31,6 +31,13 @@ final class AppContainer: ObservableObject {
         let id: String
     }
 
+    private func normalizedValue(_ value: String?) -> String? {
+        guard let normalized = value?.trimmingCharacters(in: .whitespacesAndNewlines), !normalized.isEmpty else {
+            return nil
+        }
+        return normalized
+    }
+
     private func isUsableAccountId(_ value: String?) -> Bool {
         guard let normalized = value?.trimmingCharacters(in: .whitespacesAndNewlines), !normalized.isEmpty else {
             return false
@@ -93,8 +100,10 @@ final class AppContainer: ObservableObject {
     }
 
     private func hydrateContext(from bundle: TokenBundle) {
-        tenantId          = bundle.tenantId ?? sessionManager.currentTenantId()
-        let scope = bundle.cloudAccountId ?? bundle.accountId ?? sessionManager.currentAccountId()
+        tenantId = normalizedValue(bundle.tenantId) ?? normalizedValue(sessionManager.currentTenantId())
+        let scope = normalizedValue(bundle.cloudAccountId)
+            ?? normalizedValue(bundle.accountId)
+            ?? normalizedValue(sessionManager.currentAccountId())
         selectedAccountId = isUsableAccountId(scope) ? scope : nil
         sessionManager.updateRequestContext(
             tenantId: tenantId,
@@ -103,30 +112,34 @@ final class AppContainer: ObservableObject {
     }
 
     private func ensureTenantContext() async {
-        if tenantId == nil, let profile = await fetchCurrentProfile() {
-            tenantId = profile.tenantId ?? tenantId
-            if selectedAccountId == nil {
-                let scope = profile.cloudAccountId ?? profile.accountId
+        if normalizedValue(tenantId) == nil, let profile = await fetchCurrentProfile() {
+            tenantId = normalizedValue(profile.tenantId) ?? normalizedValue(tenantId)
+            if !isUsableAccountId(selectedAccountId) {
+                let scope = normalizedValue(profile.cloudAccountId) ?? normalizedValue(profile.accountId)
                 selectedAccountId = isUsableAccountId(scope) ? scope : nil
             }
         }
 
-        if tenantId == nil,
+        if normalizedValue(tenantId) == nil,
            let tenants: [TenantIdentity] = try? await api.get("api/v1/tenants") {
-            tenantId = tenants.first?.id
+            tenantId = normalizedValue(tenants.first?.id)
         }
 
-        if selectedAccountId == nil {
+        if !isUsableAccountId(selectedAccountId) {
             let accounts = await api.discoverCloudAccounts()
             if let discovered = accounts.first(where: { isUsableAccountId($0.requestScopeId) })?.requestScopeId {
                 selectedAccountId = discovered
             } else if let deployments = try? await api.fetchDeploymentsScoped(accountId: nil, limit: 100) {
                 selectedAccountId = deployments.compactMap { dep in
-                    let candidate = (dep.resolvedAccountId ?? dep.cloudAccountId ?? dep.accountId)?.trimmingCharacters(in: .whitespacesAndNewlines)
+                    let candidate = normalizedValue(dep.resolvedAccountId)
+                        ?? normalizedValue(dep.cloudAccountId)
+                        ?? normalizedValue(dep.accountId)
                     return isUsableAccountId(candidate) ? candidate : nil
                 }.first
             }
         }
+
+        tenantId = normalizedValue(tenantId)
 
         sessionManager.updateRequestContext(
             tenantId: tenantId,

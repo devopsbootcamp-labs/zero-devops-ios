@@ -241,7 +241,7 @@ final class APIClient {
     }
 
     private func ensureTenantContextPreflight(diagnostics: inout [String]) async {
-        guard sessionManager.currentTenantId() == nil else {
+        if let currentTenant = sessionManager.currentTenantId()?.trimmingCharacters(in: .whitespacesAndNewlines), !currentTenant.isEmpty {
             diagnostics.append("tenant: already set")
             return
         }
@@ -389,6 +389,7 @@ final class APIClient {
                 id: key,
                 cloudAccountId: normalizedAccountId,
                 accountId: normalizedAccountId,
+                accountIdentifier: normalizedAccountId,
                 externalAccountId: nil,
                 cloudAccountName: values.name ?? normalizedAccountId ?? "\(values.provider.uppercased()) (derived)",
                 displayName: values.name ?? normalizedAccountId ?? "\(values.provider.uppercased()) (derived)",
@@ -397,6 +398,7 @@ final class APIClient {
                 cloudProvider: values.provider,
                 region: values.region,
                 defaultRegion: values.region,
+                regionDefault: values.region,
                 status: "derived",
                 tenantId: values.tenantId
             )
@@ -421,6 +423,7 @@ final class APIClient {
 
         let id = stringValue(["id"])
         let cloudAccountId = stringValue(["cloudAccountId", "cloud_account_id"])
+        let accountIdentifier = stringValue(["accountIdentifier", "account_identifier"])
         let accountId = stringValue([
             "accountId", "account_id", "x_account_id", "subscriptionId", "subscription_id",
             "projectId", "project_id", "awsAccountId", "aws_account_id", "tenantAccountId", "tenant_account_id"
@@ -433,12 +436,13 @@ final class APIClient {
         let cloudProvider = stringValue(["cloudProvider", "cloud_provider"])
         let region = stringValue(["region"])
         let defaultRegion = stringValue(["defaultRegion", "default_region"])
+        let regionDefault = stringValue(["regionDefault", "region_default"])
         let status = stringValue(["status"])
         let tenantId = stringValue(["tenantId", "tenant_id"])
 
         if requireExplicitAccountKey {
             let explicitKeys = [
-                "cloudAccountId", "cloud_account_id", "accountId", "account_id", "externalAccountId",
+                "cloudAccountId", "cloud_account_id", "accountIdentifier", "account_identifier", "accountId", "account_id", "externalAccountId",
                 "external_account_id", "x_account_id", "subscriptionId", "subscription_id", "projectId",
                 "project_id", "awsAccountId", "aws_account_id", "tenantAccountId", "tenant_account_id"
             ]
@@ -451,13 +455,14 @@ final class APIClient {
             if !hasExplicit { return nil }
         }
 
-        let stable = cloudAccountId ?? accountId ?? externalAccountId ?? id ?? name
+        let stable = cloudAccountId ?? accountIdentifier ?? accountId ?? externalAccountId ?? id ?? name
         guard stable != nil else { return nil }
 
         return CloudAccount(
             id: id,
             cloudAccountId: cloudAccountId,
             accountId: accountId,
+            accountIdentifier: accountIdentifier,
             externalAccountId: externalAccountId,
             cloudAccountName: cloudAccountName,
             displayName: displayName,
@@ -466,6 +471,7 @@ final class APIClient {
             cloudProvider: cloudProvider,
             region: region,
             defaultRegion: defaultRegion,
+            regionDefault: regionDefault,
             status: status,
             tenantId: tenantId
         )
@@ -652,6 +658,7 @@ final class APIClient {
 
         // Keep aggregate/list endpoints tenant-scoped to match web behavior.
         if normalized.hasPrefix("/api/v1/cloud/accounts") { return false }
+        if normalized.hasPrefix("/api/v1/cloud-accounts") { return false }
         if normalized.hasPrefix("/api/v1/accounts") { return false }
         if normalized.hasPrefix("/api/v1/analytics") { return false }
         if normalized.hasPrefix("/api/v1/chat") { return false }

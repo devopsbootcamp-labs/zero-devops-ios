@@ -66,11 +66,35 @@ final class ZeroDevOpsTests: XCTestCase {
     func testCloudAccountResolvedScopeId() {
         let account = CloudAccount(
             id: nil, cloudAccountId: "cld-123", accountId: "acc-456",
+            accountIdentifier: nil,
             externalAccountId: nil, cloudAccountName: "My AWS", displayName: nil,
             name: nil, provider: "aws", cloudProvider: nil,
-            region: "us-east-1", defaultRegion: nil, status: "active", tenantId: nil
+            region: "us-east-1", defaultRegion: nil, regionDefault: nil, status: "active", tenantId: nil
         )
         XCTAssertEqual(account.resolvedScopeId, "cld-123")
         XCTAssertEqual(account.resolvedName, "My AWS")
+    }
+
+    func testCloudAccountPrefersIdForScopeWhenAvailable() {
+        let account = CloudAccount(
+            id: "internal-db-id",
+            cloudAccountId: nil,
+            accountId: nil,
+            accountIdentifier: "123456789012",
+            externalAccountId: nil,
+            cloudAccountName: "Prod AWS",
+            displayName: nil,
+            name: nil,
+            provider: "aws",
+            cloudProvider: nil,
+            region: "us-east-1",
+            defaultRegion: nil,
+            regionDefault: nil,
+            status: "active",
+            tenantId: nil
+        )
+
+        XCTAssertEqual(account.requestScopeId, "internal-db-id")
+        XCTAssertEqual(account.resolvedScopeId, "internal-db-id")
     }
 }

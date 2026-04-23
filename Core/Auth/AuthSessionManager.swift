@@ -17,6 +17,13 @@ final class AuthSessionManager: ObservableObject {
 
     @Published private(set) var isAuthenticated = false
 
+    private func normalizeContextValue(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmed.isEmpty else {
+            return nil
+        }
+        return trimmed
+    }
+
     // MARK: - Token Access
 
     func currentAccessToken() -> String? {
@@ -44,8 +51,8 @@ final class AuthSessionManager: ObservableObject {
 
     func updateRequestContext(tenantId: String?, accountId: String?) {
         contextLock.lock()
-        requestTenantId = tenantId?.trimmingCharacters(in: .whitespacesAndNewlines)
-        requestAccountId = accountId?.trimmingCharacters(in: .whitespacesAndNewlines)
+        requestTenantId = normalizeContextValue(tenantId)
+        requestAccountId = normalizeContextValue(accountId)
         contextLock.unlock()
     }
 

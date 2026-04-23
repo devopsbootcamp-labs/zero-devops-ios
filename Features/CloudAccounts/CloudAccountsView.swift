@@ -33,17 +33,12 @@ struct CloudAccountsView: View {
             .buttonStyle(.plain)
 
             ForEach(vm.accounts, id: \.stableId) { account in
-                Button {
-                    let scope = account.resolvedScopeId
-                    container.selectAccount(scope)
-                    navPath.append(AppRoute.accountWorkspace(accountId: scope, accountName: account.resolvedName))
-                } label: {
+                NavigationLink(value: AppRoute.accountWorkspace(accountId: account.resolvedScopeId, accountName: account.resolvedName)) {
                     AccountRow(
-                        account:    account,
+                        account: account,
                         isSelected: container.selectedAccountId == account.resolvedScopeId
                     )
                 }
-                .buttonStyle(.plain)
             }
         }
         .navigationTitle("Cloud Accounts")
