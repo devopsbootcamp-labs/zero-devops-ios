@@ -8,6 +8,6 @@ enum AppConfig {
     static let oidcAudience        = "cloudblueprints-api"
     static let oidcRedirectURI     = "com.devopsbootcamp.app://callback"
     static let oidcPostLogoutURI   = "com.devopsbootcamp.app://logout"
-    // Match Android scope set; server default scopes still supply role mappings.
-    static let oidcScopes          = ["openid", "profile", "email", "offline_access"]
+    // Request roles explicitly so tokens consistently include RBAC claims.
+    static let oidcScopes          = ["openid", "profile", "email", "roles", "offline_access"]
 }

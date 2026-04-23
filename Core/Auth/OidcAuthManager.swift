@@ -103,7 +103,8 @@ final class OidcAuthManager {
 
         let token = try await exchangeAuthorizationCode(code: code, codeVerifier: codeVerifier)
         let expiresAt = Date().addingTimeInterval(TimeInterval(max(token.expiresIn ?? 60, 60)))
-        let claims = Self.decodeJwtClaims(token.idToken ?? token.accessToken)
+        // Access token carries API authorization claims (tenant/roles/resource_access).
+        let claims = Self.decodeJwtClaims(token.accessToken)
 
         return TokenBundle(
             accessToken: token.accessToken,
@@ -207,7 +208,8 @@ final class OidcAuthManager {
         }
 
         let expiresAt = Date().addingTimeInterval(TimeInterval(max(parsed.expiresIn ?? 60, 60)))
-        let claims = Self.decodeJwtClaims(parsed.idToken ?? parsed.accessToken)
+        // Keep tenant/account context aligned with API token claims after refresh.
+        let claims = Self.decodeJwtClaims(parsed.accessToken)
         return TokenBundle(
             accessToken: parsed.accessToken,
             refreshToken: parsed.refreshToken ?? refreshToken,
