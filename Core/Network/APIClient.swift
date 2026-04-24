@@ -282,10 +282,42 @@ final class APIClient {
             ]
             for path in scopedPaths {
                 do {
-                    return try await fetchDeploymentList(path: path)
+                    return deduplicateAndSortDeployments(try await fetchDeploymentList(path: path))
                 } catch {
                     lastError = error
                 }
+            }
+        }
+
+        // Tenant-wide view: merge deployments from every discovered account so users can
+        // see historical and new deployments across accounts in one list.
+        let discoveredAccounts = await discoverCloudAccountsDetailed().accounts
+        let accountIds = Array(Set(discoveredAccounts.compactMap { account in
+            let value = (account.requestScopeId ?? account.requestAccountId)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            return (value?.isEmpty == false) ? value : nil
+        }))
+
+        if !accountIds.isEmpty {
+            var merged: [Deployment] = []
+            for accountId in accountIds {
+                guard let encodedId = Self.percentEncode(accountId) else { continue }
+                let accountPaths = [
+                    "api/v1/cloud-accounts/\(encodedId)/deployments?limit=\(limit)",
+                    "api/v1/deployments?limit=\(limit)&cloud_account_id=\(encodedId)",
+                    "api/v1/deployments?cloud_account_id=\(encodedId)&limit=\(limit)",
+                ]
+                for path in accountPaths {
+                    do {
+                        let list = try await fetchDeploymentList(path: path)
+                        merged.append(contentsOf: list)
+                        break
+                    } catch {
+                        lastError = error
+                    }
+                }
+            }
+            if !merged.isEmpty {
+                return deduplicateAndSortDeployments(merged)
             }
         }
 
@@ -295,13 +327,37 @@ final class APIClient {
         ]
         for path in tenantPaths {
             do {
-                return try await fetchDeploymentList(path: path)
+                return deduplicateAndSortDeployments(try await fetchDeploymentList(path: path))
             } catch {
                 lastError = error
             }
         }
 
         throw lastError ?? APIError.invalidResponse
+    }
+
+    private func deduplicateAndSortDeployments(_ list: [Deployment]) -> [Deployment] {
+        var byId: [String: Deployment] = [:]
+        for deployment in list {
+            if let existing = byId[deployment.id] {
+                if deploymentSortDate(for: deployment) > deploymentSortDate(for: existing) {
+                    byId[deployment.id] = deployment
+                }
+            } else {
+                byId[deployment.id] = deployment
+            }
+        }
+
+        return byId.values.sorted {
+            let lhs = deploymentSortDate(for: $0)
+            let rhs = deploymentSortDate(for: $1)
+            if lhs == rhs { return $0.id < $1.id }
+            return lhs > rhs
+        }
+    }
+
+    private func deploymentSortDate(for deployment: Deployment) -> Date {
+        deployment.createdAt ?? deployment.updatedAt ?? Date.distantPast
     }
 
     func fetchResourcesList() async throws -> [Resource] {

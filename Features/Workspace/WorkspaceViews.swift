@@ -39,10 +39,10 @@ struct DeploymentsView: View {
                 .padding(16)
             }
         }
-        .task { await vm.load(accountId: container.selectedAccountId) }
-        .refreshable { await vm.load(accountId: container.selectedAccountId) }
+        .task { await vm.load(accountId: nil) }
+        .refreshable { await vm.load(accountId: nil) }
         .onChange(of: container.selectedAccountId) { _ in
-            Task { await vm.load(accountId: container.selectedAccountId) }
+            Task { await vm.load(accountId: nil) }
         }
     }
 }
