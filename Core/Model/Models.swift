@@ -269,6 +269,10 @@ struct DriftDeployment: Codable, Identifiable {
 
 struct DriftJobRequest: Encodable {
     let deploymentId: String
+
+    enum CodingKeys: String, CodingKey {
+        case deploymentId = "deployment_id"
+    }
 }
 
 struct DriftDeploymentsResponse: Decodable {

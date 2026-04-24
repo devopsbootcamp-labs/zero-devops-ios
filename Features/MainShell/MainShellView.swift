@@ -113,18 +113,18 @@ private final class ChatViewModel: ObservableObject {
         if let reply = result.reply, !reply.isEmpty {
             messages.append(ChatMessage(role: .assistant, text: reply, createdAt: Date()))
         } else {
-            if isNotFoundError(result.error) {
-                error = nil
-            } else {
-                error = result.error ?? "Chat service is unavailable right now."
+            if let err = result.error {
+                if !isNotFoundError(err) {
+                    error = err
+                    messages.append(ChatMessage(
+                        role: .assistant,
+                        text: "I could not reach the chat service. Please try again in a moment.",
+                        createdAt: Date()
+                    ))
+                }
+                // 404 = service not deployed; silently swallow — user message already visible.
             }
-            messages.append(ChatMessage(
-                role: .assistant,
-                text: isNotFoundError(result.error)
-                    ? "Chat service is not enabled in this environment yet."
-                    : "I could not reach the chat service. Please try again in a moment.",
-                createdAt: Date()
-            ))
+            // reply == nil && error == nil → message stored in chat room; no assistant bubble needed.
         }
         isSending = false
     }
@@ -162,25 +162,13 @@ private final class ChatViewModel: ObservableObject {
         // Gateway canonical flow: /api/v1/chat/rooms/{id}/messages
         if let roomId = await resolveRoomId() {
             do {
-                let r: ChatRoomMessageResponse = try await api.post(
+                // Message stored in chat room. Return (nil, nil) so send() leaves the
+                // user bubble visible without adding a confusing assistant echo.
+                let _: ChatRoomMessageResponse = try await api.post(
                     "api/v1/chat/rooms/\(roomId)/messages",
                     body: ChatRoomMessageRequest(message: body.message)
                 )
-                if !r.resolvedText.isEmpty { return (r.resolvedText, nil) }
-            } catch {
-                lastError = error
-            }
-
-            // Some backends persist message then stream/generate assistant reply asynchronously.
-            do {
-                let history: ChatRoomMessagesResponse = try await api.get("api/v1/chat/rooms/\(roomId)/messages")
-                if let assistant = history.resolved.reversed().first(where: { ($0.role ?? "").lowercased() == "assistant" }),
-                   !assistant.resolvedText.isEmpty {
-                    return (assistant.resolvedText, nil)
-                }
-                if let latest = history.resolved.last, !latest.resolvedText.isEmpty {
-                    return (latest.resolvedText, nil)
-                }
+                return (nil, nil)
             } catch {
                 lastError = error
             }
