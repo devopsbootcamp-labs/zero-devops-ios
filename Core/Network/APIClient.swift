@@ -272,6 +272,7 @@ final class APIClient {
             let trimmed = $0.trimmingCharacters(in: .whitespacesAndNewlines)
             return trimmed.isEmpty ? nil : trimmed
         }
+        let analyticsLimit = max(1, min(limit, 500))
 
         var lastError: Error?
         if let scoped, let encodedId = Self.percentEncode(scoped) {
@@ -279,6 +280,7 @@ final class APIClient {
                 "api/v1/cloud-accounts/\(encodedId)/deployments?limit=\(limit)",
                 "api/v1/deployments?limit=\(limit)&cloud_account_id=\(encodedId)",
                 "api/v1/deployments?cloud_account_id=\(encodedId)&limit=\(limit)",
+                "api/v1/analytics/deployments?limit=\(analyticsLimit)&range=365&cloud_account_id=\(encodedId)",
             ]
             for path in scopedPaths {
                 do {
@@ -292,6 +294,7 @@ final class APIClient {
         let tenantPaths = [
             "api/v1/deployments?limit=\(limit)",
             "api/v1/deployments",
+            "api/v1/analytics/deployments?limit=\(analyticsLimit)&range=365",
         ]
         for path in tenantPaths {
             do {
