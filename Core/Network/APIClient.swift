@@ -315,8 +315,9 @@ final class APIClient {
         }
     }
 
-    /// Mirrors Android `fetchDeploymentsScoped`: prefer account-scoped endpoints, then fallback.
-    /// Properly encodes dynamic path components.
+    /// Mirrors Android `fetchDeploymentsScoped`: prefer account-scoped endpoints when
+    /// a scope is selected, otherwise tenant-wide aggregation.
+    /// Properly encodes dynamic path components and preserves strict scope separation.
     func fetchDeploymentsScoped(accountId: String?, limit: Int = 500) async throws -> [Deployment] {
         // Self-heal request context before deployment reads in case app-level preflight
         // timed out or resumed from a stale background state.
@@ -329,23 +330,38 @@ final class APIClient {
         }
 
         var lastError: Error?
-        if let scoped, let encodedId = Self.percentEncode(scoped) {
-            let scopedPaths = [
-                "api/v1/cloud-accounts/\(encodedId)/deployments?limit=\(limit)",
-                "api/v1/deployments?limit=\(limit)&cloud_account_id=\(encodedId)",
-                "api/v1/deployments?cloud_account_id=\(encodedId)&limit=\(limit)",
-            ]
-            for path in scopedPaths {
-                do {
-                    return deduplicateAndSortDeployments(try await fetchDeploymentList(path: path))
-                } catch {
-                    lastError = error
+        if let scoped {
+            let candidateIds = await resolveAccountScopeCandidates(scoped)
+            var sawEmptyScopedResponse = false
+
+            for candidateId in candidateIds {
+                guard let encodedId = Self.percentEncode(candidateId) else { continue }
+                let scopedPaths = [
+                    "api/v1/cloud-accounts/\(encodedId)/deployments?limit=\(limit)",
+                    "api/v1/deployments?limit=\(limit)&cloud_account_id=\(encodedId)",
+                    "api/v1/deployments?cloud_account_id=\(encodedId)&limit=\(limit)",
+                ]
+                for path in scopedPaths {
+                    do {
+                        let list = try await fetchDeploymentList(path: path)
+                        if !list.isEmpty {
+                            return deduplicateAndSortDeployments(list)
+                        }
+                        sawEmptyScopedResponse = true
+                    } catch {
+                        lastError = error
+                    }
                 }
             }
+
+            // Scope selected: never fall back to tenant-wide data.
+            if sawEmptyScopedResponse {
+                return []
+            }
+            throw lastError ?? APIError.invalidResponse
         }
 
-        // For tenant-wide views, prefer direct tenant endpoints first so the UI can
-        // render quickly even when account-discovery endpoints are slow/denied.
+        // Tenant-wide view: prefer direct tenant endpoints first.
         let tenantPaths = [
             "api/v1/deployments?limit=\(limit)",
             "api/v1/deployments",
@@ -361,8 +377,7 @@ final class APIClient {
             }
         }
 
-        // Tenant-wide view: merge deployments from every discovered account so users can
-        // see historical and new deployments across accounts in one list.
+        // Tenant-wide aggregation across discovered accounts.
         let discoveredAccounts = await discoverCloudAccountsDetailed().accounts
         let accountIds = Array(Set(discoveredAccounts.compactMap { account in
             let value = (account.requestScopeId ?? account.requestAccountId)?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -393,7 +408,6 @@ final class APIClient {
             }
         }
 
-        // Retry tenant paths as a final fallback if they were reachable but empty.
         for path in tenantPaths {
             do {
                 return deduplicateAndSortDeployments(try await fetchDeploymentList(path: path))
@@ -403,6 +417,46 @@ final class APIClient {
         }
 
         throw lastError ?? APIError.invalidResponse
+    }
+
+    private func resolveAccountScopeCandidates(_ scoped: String) async -> [String] {
+        let normalizedScoped = scoped.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedScoped.isEmpty else { return [] }
+
+        var ordered: [String] = []
+        var seen = Set<String>()
+        func appendUnique(_ value: String?) {
+            guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else { return }
+            let key = value.lowercased()
+            guard seen.insert(key).inserted else { return }
+            ordered.append(value)
+        }
+
+        appendUnique(normalizedScoped)
+
+        let accounts = await discoverCloudAccountsDetailed().accounts
+        let scopedKey = normalizedScoped.lowercased()
+        for account in accounts {
+            let identifiers = [
+                account.requestScopeId,
+                account.cloudAccountId,
+                account.id,
+                account.accountIdentifier,
+                account.accountId,
+                account.externalAccountId,
+            ].compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            let hasMatch = identifiers.contains { $0.lowercased() == scopedKey }
+            if hasMatch {
+                appendUnique(account.requestScopeId)
+                appendUnique(account.cloudAccountId)
+                appendUnique(account.id)
+                appendUnique(account.accountIdentifier)
+                appendUnique(account.accountId)
+                appendUnique(account.externalAccountId)
+            }
+        }
+
+        return ordered
     }
 
     private func deduplicateAndSortDeployments(_ list: [Deployment]) -> [Deployment] {

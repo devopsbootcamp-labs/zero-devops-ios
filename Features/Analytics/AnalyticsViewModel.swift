@@ -24,13 +24,16 @@ final class AnalyticsViewModel: ObservableObject {
         error     = nil
 
         // Build optional account scope suffix for query strings.
+        // Send both keys for backend compatibility across versions.
         let scopeParam: String = {
             guard let id = accountId,
                   let enc = id.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed)
             else { return "" }
-            return "&account_id=\(enc)"
+            return "&cloud_account_id=\(enc)&account_id=\(enc)"
         }()
-        let insightsQuery = scopeParam.isEmpty ? "" : "?account_id=\(accountId!.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? accountId!)"
+        let insightsQuery = scopeParam.isEmpty
+            ? ""
+            : "?cloud_account_id=\(accountId!.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? accountId!)&account_id=\(accountId!.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? accountId!)"
 
         async let ov   = tryGet(AnalyticsOverview.self,    path: "api/v1/analytics/overview?range=\(range)\(scopeParam)")
         async let perf = tryGet(AnalyticsPerformance.self, path: "api/v1/analytics/performance?range=\(range)\(scopeParam)")

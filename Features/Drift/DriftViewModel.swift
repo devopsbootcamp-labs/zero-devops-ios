@@ -98,22 +98,29 @@ final class DriftViewModel: ObservableObject {
         isLoading = false
     }
 
-    func triggerCheck(deploymentId: String) async {
-        let cloudAccountId = accountMap[deploymentId]
-        do {
-            let _: EmptyResponse = try await api.post(
-                "api/v1/drift/jobs",
-                body: DriftJobRequest(deploymentId: deploymentId, cloudAccountId: cloudAccountId)
-            )
-            triggerResult = "Drift check queued for \(nameMap[deploymentId] ?? deploymentId)."
-        } catch {
-            triggerResult = "Drift check failed: \(error.localizedDescription)"
+    func triggerCheck(deploymentId: String, scopeAccountId: String? = nil) async {
+        let candidates = buildDriftAccountCandidates(deploymentId: deploymentId, scopeAccountId: scopeAccountId)
+        var lastError: Error?
+
+        for candidate in candidates {
+            do {
+                let _: EmptyResponse = try await api.post(
+                    "api/v1/drift/jobs",
+                    body: DriftJobRequest(deploymentId: deploymentId, cloudAccountId: candidate)
+                )
+                triggerResult = "Drift check queued for \(nameMap[deploymentId] ?? deploymentId)."
+                return
+            } catch {
+                lastError = error
+            }
         }
+
+        triggerResult = "Drift check failed: \((lastError ?? APIError.invalidResponse).localizedDescription)"
     }
 
-    func runAllChecks() async {
+    func runAllChecks(scopeAccountId: String? = nil) async {
         for item in items {
-            await triggerCheck(deploymentId: item.deploymentId)
+            await triggerCheck(deploymentId: item.deploymentId, scopeAccountId: scopeAccountId)
         }
     }
 
@@ -139,6 +146,24 @@ final class DriftViewModel: ObservableObject {
 
     private func fetchDeployments(accountId: String?) async throws -> [Deployment] {
         try await api.fetchDeploymentsScoped(accountId: accountId, limit: 500)
+    }
+
+    private func buildDriftAccountCandidates(deploymentId: String, scopeAccountId: String?) -> [String?] {
+        var result: [String?] = []
+        var seen = Set<String>()
+
+        func appendUnique(_ value: String?) {
+            guard let normalized = normalizeIdentifier(value) else { return }
+            let key = normalized.lowercased()
+            guard seen.insert(key).inserted else { return }
+            result.append(normalized)
+        }
+
+        appendUnique(accountMap[deploymentId])
+        appendUnique(scopeAccountId)
+        // Final fallback: let backend resolve account from deployment_id/tenant context.
+        result.append(nil)
+        return result
     }
 
     private func normalizeIdentifier(_ value: String?) -> String? {

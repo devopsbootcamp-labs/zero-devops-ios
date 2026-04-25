@@ -45,26 +45,28 @@ final class DeploymentDetailViewModel: ObservableObject {
     func runDriftCheck(deploymentId: String) async {
         isActionRunning = true
         actionResult    = nil
-        // Use deployment-native account identifiers for backend credential lookup.
-        let cloudAccountId = deployment?.params?["cloud_account_id"]
-            ?? deployment?.params?["account_id"]
-            ?? deployment?.cloudAccountId
-            ?? deployment?.accountId
-            ?? deployment?.resolvedAccountId
-        do {
-            let _: EmptyResponse = try await api.post(
-                "api/v1/drift/jobs",
-                body: DriftJobRequest(deploymentId: deploymentId, cloudAccountId: cloudAccountId)
-            )
-            actionResult = "Drift check queued. Streaming logs..."
-        } catch {
-            actionResult = error.localizedDescription
-            isActionRunning = false
-            return
+
+        let candidates = buildDriftAccountCandidates()
+        var lastError: Error?
+
+        for candidate in candidates {
+            do {
+                let _: EmptyResponse = try await api.post(
+                    "api/v1/drift/jobs",
+                    body: DriftJobRequest(deploymentId: deploymentId, cloudAccountId: candidate)
+                )
+                actionResult = "Drift check queued. Streaming logs..."
+                isActionRunning = false
+                await refreshDeploymentState(deploymentId: deploymentId)
+                await streamDriftLogs(deploymentId: deploymentId)
+                return
+            } catch {
+                lastError = error
+            }
         }
+
+        actionResult = (lastError ?? APIError.invalidResponse).localizedDescription
         isActionRunning = false
-        await refreshDeploymentState(deploymentId: deploymentId)
-        await streamDriftLogs(deploymentId: deploymentId)
     }
 
     func runDestroy(deploymentId: String) async -> Bool {
@@ -143,6 +145,27 @@ final class DeploymentDetailViewModel: ObservableObject {
         if let updated: Deployment = try? await api.get("api/v1/deployments/\(deploymentId)") {
             deployment = updated
         }
+    }
+
+    private func buildDriftAccountCandidates() -> [String?] {
+        var result: [String?] = []
+        var seen = Set<String>()
+
+        func appendUnique(_ value: String?) {
+            guard let normalized = value?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty() else { return }
+            let key = normalized.lowercased()
+            guard seen.insert(key).inserted else { return }
+            result.append(normalized)
+        }
+
+        appendUnique(deployment?.params?["cloud_account_id"])
+        appendUnique(deployment?.params?["account_id"])
+        appendUnique(deployment?.cloudAccountId)
+        appendUnique(deployment?.accountId)
+        appendUnique(deployment?.resolvedAccountId)
+        // Final fallback: backend resolves account from deployment + tenant context.
+        result.append(nil)
+        return result
     }
 }
 
