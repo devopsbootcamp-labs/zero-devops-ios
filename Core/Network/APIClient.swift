@@ -70,8 +70,26 @@ final class APIClient {
     private let urlSession: URLSession = {
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 30
+        config.timeoutIntervalForResource = 30
         return URLSession(configuration: config)
     }()
+
+    private let networkDeadlineNanos: UInt64 = 12_000_000_000
+
+    private func dataWithTimeout(for request: URLRequest) async throws -> (Data, URLResponse) {
+        try await withThrowingTaskGroup(of: (Data, URLResponse).self) { group in
+            group.addTask { try await self.urlSession.data(for: request) }
+            group.addTask {
+                try await Task.sleep(nanoseconds: self.networkDeadlineNanos)
+                throw URLError(.timedOut)
+            }
+            guard let result = try await group.next() else {
+                throw URLError(.unknown)
+            }
+            group.cancelAll()
+            return result
+        }
+    }
 
     // MARK: - HTTP verbs
 
@@ -81,7 +99,7 @@ final class APIClient {
 
     func getJSON(_ path: String) async throws -> Any {
         let first = try buildRequest(method: "GET", path: path, body: Optional<EmptyBody>.none, useFreshToken: false)
-        let (data, response) = try await urlSession.data(for: first)
+        let (data, response) = try await dataWithTimeout(for: first)
 
         do {
             try validate(response: response, data: data)
@@ -90,7 +108,7 @@ final class APIClient {
             where statusCode == 401 || (statusCode == 403 && isCloudReadDeniedMessage(message)) {
             _ = try await sessionManager.refreshAccessToken()
             let retry = try buildRequest(method: "GET", path: path, body: Optional<EmptyBody>.none, useFreshToken: true)
-            let (retryData, retryResponse) = try await urlSession.data(for: retry)
+            let (retryData, retryResponse) = try await dataWithTimeout(for: retry)
             try validate(response: retryResponse, data: retryData)
             return try JSONSerialization.jsonObject(with: retryData)
         }
@@ -289,6 +307,23 @@ final class APIClient {
             }
         }
 
+        // For tenant-wide views, prefer direct tenant endpoints first so the UI can
+        // render quickly even when account-discovery endpoints are slow/denied.
+        let tenantPaths = [
+            "api/v1/deployments?limit=\(limit)",
+            "api/v1/deployments",
+        ]
+        for path in tenantPaths {
+            do {
+                let list = try await fetchDeploymentList(path: path)
+                if !list.isEmpty {
+                    return deduplicateAndSortDeployments(list)
+                }
+            } catch {
+                lastError = error
+            }
+        }
+
         // Tenant-wide view: merge deployments from every discovered account so users can
         // see historical and new deployments across accounts in one list.
         let discoveredAccounts = await discoverCloudAccountsDetailed().accounts
@@ -321,10 +356,7 @@ final class APIClient {
             }
         }
 
-        let tenantPaths = [
-            "api/v1/deployments?limit=\(limit)",
-            "api/v1/deployments",
-        ]
+        // Retry tenant paths as a final fallback if they were reachable but empty.
         for path in tenantPaths {
             do {
                 return deduplicateAndSortDeployments(try await fetchDeploymentList(path: path))
@@ -716,7 +748,7 @@ final class APIClient {
 
     private func perform<B: Encodable, T: Decodable>(method: String, path: String, body: B?) async throws -> T {
         let first = try buildRequest(method: method, path: path, body: body, useFreshToken: false)
-        let (data, response) = try await urlSession.data(for: first)
+        let (data, response) = try await dataWithTimeout(for: first)
 
         do {
             try validate(response: response, data: data)
@@ -726,7 +758,7 @@ final class APIClient {
             // Mirror Android TokenRefreshAuthenticator behavior: refresh once and retry.
             _ = try await sessionManager.refreshAccessToken()
             let retry = try buildRequest(method: method, path: path, body: body, useFreshToken: true)
-            let (retryData, retryResponse) = try await urlSession.data(for: retry)
+            let (retryData, retryResponse) = try await dataWithTimeout(for: retry)
             try validate(response: retryResponse, data: retryData)
             return try decodeAny(retryData)
         }
