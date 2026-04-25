@@ -74,18 +74,11 @@ final class AppContainer: ObservableObject {
                 }
                 sessionManager.saveBundle(bundle)
                 hydrateContext(from: bundle)
-
-                // Enrich tenant/account context before navigating so views have data on
-                // first render. Bounded by a 5-second deadline so a slow/unreachable API
-                // can never re-introduce the login-spinner hang.
-                await withTaskGroup(of: Void.self) { group in
-                    group.addTask { await self.ensureTenantContext() }
-                    group.addTask { try? await Task.sleep(nanoseconds: 5_000_000_000) }
-                    _ = await group.next()  // first to finish wins
-                    group.cancelAll()       // cancel the other
-                }
-
                 sessionReady = true
+
+                // Never block login completion on downstream API calls.
+                // Context enrichment is best-effort and can happen after entering the app.
+                Task { await ensureTenantContext() }
             } catch {
                 loginError  = error.localizedDescription
             }
