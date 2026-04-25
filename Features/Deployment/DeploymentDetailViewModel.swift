@@ -45,9 +45,9 @@ final class DeploymentDetailViewModel: ObservableObject {
     func runDriftCheck(deploymentId: String) async {
         isActionRunning = true
         actionResult    = nil
-        // Include the deployment's cloud account ID so the backend resolves
-        // the correct cloud-connect credentials (fixes "credentials fetch failed").
-        let cloudAccountId = deployment?.cloudAccountId ?? deployment?.accountId
+        // Resolve canonical cloud-account scope id so backend credential lookup works
+        // across providers (notably GCP project/account aliases).
+        let cloudAccountId = await resolveDriftCloudAccountId()
         do {
             let _: EmptyResponse = try await api.post(
                 "api/v1/drift/jobs",
@@ -61,7 +61,7 @@ final class DeploymentDetailViewModel: ObservableObject {
         }
         isActionRunning = false
         await refreshDeploymentState(deploymentId: deploymentId)
-        await streamLogs(deploymentId: deploymentId)
+        await streamDriftLogs(deploymentId: deploymentId)
     }
 
     func runDestroy(deploymentId: String) async -> Bool {
@@ -96,6 +96,36 @@ final class DeploymentDetailViewModel: ObservableObject {
         isStreaming = false
     }
 
+    private func streamDriftLogs(deploymentId: String) async {
+        isStreaming = true
+        pollCount   = 0
+        while pollCount < 40 {
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            if let newLogs = try? await fetchDriftLogs(deploymentId: deploymentId), !newLogs.isEmpty {
+                logs = newLogs
+            }
+            await refreshDeploymentState(deploymentId: deploymentId)
+            pollCount += 1
+        }
+        isStreaming = false
+    }
+
+    private func fetchDriftLogs(deploymentId: String) async throws -> [DeploymentLog] {
+        let paths = [
+            "api/v1/deployments/\(deploymentId)/drift/logs",
+            "api/v1/drift/deployments/\(deploymentId)/logs",
+            "api/v1/drift/jobs/\(deploymentId)/logs",
+            "api/v1/deployments/\(deploymentId)/logs?source=drift",
+            "api/v1/deployments/\(deploymentId)/logs",
+        ]
+        for path in paths {
+            if let list: [DeploymentLog] = try? await api.get(path), !list.isEmpty {
+                return list
+            }
+        }
+        return []
+    }
+
     private func fetchDeployment(id: String) async throws -> Deployment {
         try await api.get("api/v1/deployments/\(id)")
     }
@@ -110,6 +140,48 @@ final class DeploymentDetailViewModel: ObservableObject {
         if let updated: Deployment = try? await api.get("api/v1/deployments/\(deploymentId)") {
             deployment = updated
         }
+    }
+
+    private func resolveDriftCloudAccountId() async -> String? {
+        guard let dep = deployment else { return nil }
+
+        let deploymentProvider = normalizeIdentifier(dep.cloudProvider)
+        let deploymentCandidates = Set([
+            dep.cloudAccountId,
+            dep.accountId,
+            dep.resolvedAccountId,
+            dep.params?["cloud_account_id"],
+            dep.params?["account_id"],
+            dep.params?["cloudAccountId"],
+            dep.params?["accountId"],
+        ].compactMap(normalizeIdentifier).map { $0.lowercased() })
+
+        let accounts = await api.discoverCloudAccountsDetailed().accounts
+        let matched = accounts.first { account in
+            let accountProvider = normalizeIdentifier(account.provider ?? account.cloudProvider)
+            if let deploymentProvider, let accountProvider,
+               deploymentProvider.lowercased() != accountProvider.lowercased() {
+                return false
+            }
+            let accountCandidates = [
+                account.requestScopeId,
+                account.cloudAccountId,
+                account.id,
+                account.accountIdentifier,
+                account.accountId,
+                account.externalAccountId,
+            ].compactMap(normalizeIdentifier).map { $0.lowercased() }
+            return !deploymentCandidates.isDisjoint(with: Set(accountCandidates))
+        }
+
+        return matched?.requestScopeId
+            ?? normalizeIdentifier(dep.cloudAccountId)
+            ?? normalizeIdentifier(dep.accountId)
+            ?? normalizeIdentifier(dep.resolvedAccountId)
+    }
+
+    private func normalizeIdentifier(_ value: String?) -> String? {
+        value?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty()
     }
 }
 

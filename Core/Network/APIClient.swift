@@ -299,11 +299,25 @@ final class APIClient {
                 }
             }
         }
+
+        // Fallback: many environments infer tenant from JWT subject/email at this endpoint
+        // even when profile payload doesn't include tenantId.
+        if let tenants: [TenantIdentity] = try? await get("api/v1/tenants"),
+           let tid = tenants.first?.id.trimmingCharacters(in: .whitespacesAndNewlines),
+           !tid.isEmpty {
+            sessionManager.updateRequestContext(tenantId: tid, accountId: sessionManager.currentAccountId())
+            diagnostics.append("tenant from api/v1/tenants: \(tid)")
+        }
     }
 
     /// Mirrors Android `fetchDeploymentsScoped`: prefer account-scoped endpoints, then fallback.
     /// Properly encodes dynamic path components.
     func fetchDeploymentsScoped(accountId: String?, limit: Int = 500) async throws -> [Deployment] {
+        // Self-heal request context before deployment reads in case app-level preflight
+        // timed out or resumed from a stale background state.
+        var preflightDiagnostics: [String] = []
+        await ensureTenantContextPreflight(diagnostics: &preflightDiagnostics)
+
         let scoped = accountId.flatMap {
             let trimmed = $0.trimmingCharacters(in: .whitespacesAndNewlines)
             return trimmed.isEmpty ? nil : trimmed
