@@ -74,8 +74,11 @@ final class AppContainer: ObservableObject {
                 }
                 sessionManager.saveBundle(bundle)
                 hydrateContext(from: bundle)
-                await ensureTenantContext()
                 sessionReady = true
+
+                // Do not block login completion on downstream API calls.
+                // Context enrichment can run in the background after the user is signed in.
+                Task { await ensureTenantContext() }
             } catch {
                 loginError  = error.localizedDescription
             }
@@ -129,13 +132,6 @@ final class AppContainer: ObservableObject {
             let accounts = await api.discoverCloudAccounts()
             if let discovered = accounts.first(where: { isUsableAccountId($0.requestScopeId) })?.requestScopeId {
                 selectedAccountId = discovered
-            } else if let deployments = try? await api.fetchDeploymentsScoped(accountId: nil, limit: 100) {
-                selectedAccountId = deployments.compactMap { dep in
-                    let candidate = normalizedValue(dep.resolvedAccountId)
-                        ?? normalizedValue(dep.cloudAccountId)
-                        ?? normalizedValue(dep.accountId)
-                    return isUsableAccountId(candidate) ? candidate : nil
-                }.first
             }
         }
 
