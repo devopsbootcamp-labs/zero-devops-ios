@@ -56,6 +56,11 @@ final class OidcAuthManager {
 
     @MainActor
     func startAuth(from viewController: UIViewController) async throws -> TokenBundle {
+        let scheme = callbackScheme().trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !scheme.isEmpty else {
+            throw AuthError.callbackError("Invalid redirect URI scheme in AppConfig.oidcRedirectURI")
+        }
+
         let state = Self.randomURLSafeString(length: 24)
         let codeVerifier = Self.randomURLSafeString(length: 64)
         let codeChallenge = Self.codeChallenge(from: codeVerifier)
@@ -81,7 +86,7 @@ final class OidcAuthManager {
 
         let callbackURL = try await performWebLogin(
             authURL: authURL,
-            callbackScheme: callbackScheme(),
+            callbackScheme: scheme,
             viewController: viewController
         )
         guard let callbackComps = URLComponents(url: callbackURL, resolvingAgainstBaseURL: false) else {
@@ -127,6 +132,7 @@ final class OidcAuthManager {
                 url: authURL,
                 callbackURLScheme: callbackScheme
             ) { callbackURL, error in
+                self.webSession = nil
                 if let error {
                     continuation.resume(throwing: error)
                     return
@@ -141,7 +147,11 @@ final class OidcAuthManager {
             session.presentationContextProvider = provider
             session.prefersEphemeralWebBrowserSession = false
             self.webSession = session
-            _ = session.start()
+            let started = session.start()
+            if !started {
+                self.webSession = nil
+                continuation.resume(throwing: AuthError.callbackError("Unable to start iOS web authentication session"))
+            }
         }
     }
 
