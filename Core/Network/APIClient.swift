@@ -334,10 +334,9 @@ final class APIClient {
             for candidateId in candidateIds {
                 guard let encodedId = Self.percentEncode(candidateId) else { continue }
                 let scopedPaths = [
-                    "api/v1/deployments?limit=\(limit)&cloud_account_id=\(encodedId)&account_id=\(encodedId)",
-                    "api/v1/deployments?cloud_account_id=\(encodedId)&account_id=\(encodedId)&limit=\(limit)",
                     "api/v1/deployments?limit=\(limit)&cloud_account_id=\(encodedId)",
                     "api/v1/deployments?cloud_account_id=\(encodedId)&limit=\(limit)",
+                    "api/v1/cloud-accounts/\(encodedId)/deployments?limit=\(limit)",
                 ]
                 for path in scopedPaths {
                     do {
@@ -357,15 +356,50 @@ final class APIClient {
             "api/v1/deployments?limit=\(limit)",
             "api/v1/deployments",
         ]
+        var sawAnyTenantResponse = false
         for path in tenantPaths {
             do {
                 let list = try await fetchDeploymentList(path: path)
+                sawAnyTenantResponse = true
                 if !list.isEmpty {
                     return deduplicateAndSortDeployments(list)
                 }
             } catch {
                 lastError = error
             }
+        }
+
+        // Enterprise fallback: if tenant list endpoint returns empty, fan-out per discovered account.
+        // This preserves tenant-wide visibility on environments where /deployments is sparse.
+        let discoveredAccounts = await discoverCloudAccountsDetailed().accounts
+        let accountIds = Array(Set(discoveredAccounts.compactMap { account in
+            let value = (account.requestScopeId ?? account.requestAccountId)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            return (value?.isEmpty == false) ? value : nil
+        }))
+
+        if !accountIds.isEmpty {
+            var merged: [Deployment] = []
+            for accountId in accountIds {
+                guard let encodedId = Self.percentEncode(accountId) else { continue }
+                let accountPaths = [
+                    "api/v1/deployments?limit=\(limit)&cloud_account_id=\(encodedId)",
+                    "api/v1/deployments?cloud_account_id=\(encodedId)&limit=\(limit)",
+                    "api/v1/cloud-accounts/\(encodedId)/deployments?limit=\(limit)",
+                ]
+                for path in accountPaths {
+                    if let list = try? await fetchDeploymentList(path: path), !list.isEmpty {
+                        merged.append(contentsOf: list)
+                        break
+                    }
+                }
+            }
+            if !merged.isEmpty {
+                return deduplicateAndSortDeployments(merged)
+            }
+        }
+
+        if sawAnyTenantResponse {
+            return []
         }
 
         throw lastError ?? APIError.invalidResponse

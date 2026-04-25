@@ -9,10 +9,13 @@ final class DriftViewModel: ObservableObject {
     @Published var isLoading      = false
     @Published var error:         String?
     @Published var triggerResult: String?
+    @Published var liveLogs:      [DeploymentLog] = []
+    @Published var isLogStreaming = false
 
     /// Maps deploymentId → cloudAccountId so drift jobs carry the right credential scope.
     private var accountMap: [String: String] = [:]
     private let api = APIClient.shared
+    private var logAfterSeq = 0
 
     private func isIgnorableDriftError(_ error: Error) -> Bool {
         let text = error.localizedDescription.lowercased()
@@ -104,11 +107,14 @@ final class DriftViewModel: ObservableObject {
 
         for candidate in candidates {
             do {
-                let _: EmptyResponse = try await api.post(
+                let response: DriftJobQueuedResponse = try await api.post(
                     "api/v1/drift/jobs",
                     body: DriftJobRequest(deploymentId: deploymentId, cloudAccountId: candidate, accountId: candidate)
                 )
                 triggerResult = "Drift check queued for \(nameMap[deploymentId] ?? deploymentId)."
+                if let jobId = response.jobId?.trimmingCharacters(in: .whitespacesAndNewlines), !jobId.isEmpty {
+                    await streamJobLogs(jobId: jobId, deploymentId: deploymentId)
+                }
                 return
             } catch {
                 lastError = error
@@ -169,4 +175,70 @@ final class DriftViewModel: ObservableObject {
     private func normalizeIdentifier(_ value: String?) -> String? {
         value?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty()
     }
+
+    private func streamJobLogs(jobId: String, deploymentId: String) async {
+        liveLogs = []
+        logAfterSeq = 0
+        isLogStreaming = true
+        defer { isLogStreaming = false }
+
+        for _ in 0..<60 {
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+
+            if let chunk = try? await fetchDriftJobLogChunk(jobId: jobId, afterSeq: logAfterSeq) {
+                if !chunk.logs.isEmpty {
+                    liveLogs.append(contentsOf: chunk.logs)
+                    if let next = chunk.nextAfterSeq {
+                        logAfterSeq = max(logAfterSeq, next)
+                    } else {
+                        logAfterSeq += chunk.logs.count
+                    }
+                }
+            }
+
+            // Keep main drift rows fresh while logs stream.
+            if let driftRows = try? await fetchDriftDeployments(accountId: nil), !driftRows.isEmpty {
+                items = driftRows
+            }
+
+            // Stop early when job is no longer active.
+            if let jobs: DriftJobsResponse = try? await api.get("api/v1/drift/jobs?deployment_id=\(deploymentId)&limit=1"),
+               let latest = jobs.items.first,
+               let status = latest.status?.lowercased(),
+               !(status == "queued" || status == "running" || status == "pending") {
+                break
+            }
+        }
+    }
+
+    private func fetchDriftJobLogChunk(jobId: String, afterSeq: Int) async throws -> (logs: [DeploymentLog], nextAfterSeq: Int?) {
+        let raw = try await api.getJSON("api/v1/drift/jobs/\(jobId)/logs?after_seq=\(afterSeq)&limit=200")
+        guard let root = raw as? [String: Any] else { return ([], nil) }
+        let next = root["next_after_seq"] as? Int
+        let rows = (root["logs"] as? [[String: Any]]) ?? []
+        let mapped = rows.compactMap { row -> DeploymentLog? in
+            guard let message = row["message"] as? String else { return nil }
+            let level = (row["level"] as? String) ?? (row["stream"] as? String)
+            let ts = Self.parseISODate(row["ts"] as? String)
+            return DeploymentLog(timestamp: ts, level: level, message: message)
+        }
+        return (mapped, next)
+    }
+
+    private static func parseISODate(_ value: String?) -> Date? {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else { return nil }
+        let withFractional = ISO8601DateFormatter()
+        withFractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = withFractional.date(from: value) { return date }
+        let plain = ISO8601DateFormatter()
+        return plain.date(from: value)
+    }
+}
+
+private struct DriftJobsResponse: Decodable {
+    let items: [DriftJob]
+}
+
+private struct DriftJob: Decodable {
+    let status: String?
 }

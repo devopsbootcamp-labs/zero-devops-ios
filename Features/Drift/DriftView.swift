@@ -22,6 +22,39 @@ struct DriftView: View {
                     .padding(.horizontal)
             }
 
+            if vm.isLogStreaming || !vm.liveLogs.isEmpty {
+                GroupBox(label: Label(vm.isLogStreaming ? "Execution Logs  ●" : "Execution Logs", systemImage: "terminal")) {
+                    ScrollView(.vertical) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            if vm.liveLogs.isEmpty {
+                                Text("No logs yet. Logs appear as the drift check runs.")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            } else {
+                                ForEach(vm.liveLogs) { log in
+                                    HStack(alignment: .top, spacing: 6) {
+                                        if let ts = log.timestamp {
+                                            Text(ts.formatted(date: .omitted, time: .standard))
+                                                .font(.system(size: 10, design: .monospaced))
+                                                .foregroundColor(.secondary)
+                                                .frame(width: 80)
+                                        }
+                                        Text(log.message)
+                                            .font(.system(size: 11, design: .monospaced))
+                                            .foregroundColor(logColor(log.level))
+                                            .frame(maxWidth: .infinity, alignment: .leading)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    .frame(maxHeight: 220)
+                    .background(Color.black.opacity(0.04))
+                    .cornerRadius(8)
+                }
+                .padding(.horizontal)
+            }
+
             List(vm.items) { item in
                 DriftItemRow(
                     item:         item,
@@ -65,6 +98,15 @@ struct DriftView: View {
         }
         .onChange(of: container.tenantId) { _ in
             Task { await vm.load(accountId: container.selectedAccountId) }
+        }
+    }
+
+    private func logColor(_ level: String?) -> Color {
+        switch level?.lowercased() {
+        case "error":   return .red
+        case "warning": return .orange
+        case "debug":   return .secondary
+        default:         return .primary
         }
     }
 }
