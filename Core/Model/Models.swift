@@ -280,6 +280,7 @@ struct DriftDeployment: Codable, Identifiable {
 struct DriftJobRequest: Encodable {
     let deploymentId:    String
     let cloudAccountId:  String?
+    let accountId:       String?
 
     /// Backend requires cloud_account_id to resolve the correct cloud-connect
     /// credentials for drift detection.  Include it in the request body whenever
@@ -287,6 +288,19 @@ struct DriftJobRequest: Encodable {
     enum CodingKeys: String, CodingKey {
         case deploymentId   = "deployment_id"
         case cloudAccountId = "cloud_account_id"
+        case accountId      = "account_id"
+    }
+}
+
+struct DriftJobQueuedResponse: Decodable {
+    let queued:  Bool?
+    let jobId:   String?
+    let message: String?
+
+    enum CodingKeys: String, CodingKey {
+        case queued
+        case jobId = "job_id"
+        case message
     }
 }
 

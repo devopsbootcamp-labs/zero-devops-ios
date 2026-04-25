@@ -106,7 +106,7 @@ final class DriftViewModel: ObservableObject {
             do {
                 let _: EmptyResponse = try await api.post(
                     "api/v1/drift/jobs",
-                    body: DriftJobRequest(deploymentId: deploymentId, cloudAccountId: candidate)
+                    body: DriftJobRequest(deploymentId: deploymentId, cloudAccountId: candidate, accountId: candidate)
                 )
                 triggerResult = "Drift check queued for \(nameMap[deploymentId] ?? deploymentId)."
                 return

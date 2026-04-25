@@ -315,9 +315,8 @@ final class APIClient {
         }
     }
 
-    /// Mirrors Android `fetchDeploymentsScoped`: prefer account-scoped endpoints when
-    /// a scope is selected, otherwise tenant-wide aggregation.
-    /// Properly encodes dynamic path components and preserves strict scope separation.
+    /// Mirrors web deployments list behavior: use canonical /api/v1/deployments with
+    /// optional cloud_account_id/account_id query filters.
     func fetchDeploymentsScoped(accountId: String?, limit: Int = 500) async throws -> [Deployment] {
         // Self-heal request context before deployment reads in case app-level preflight
         // timed out or resumed from a stale background state.
@@ -332,12 +331,11 @@ final class APIClient {
         var lastError: Error?
         if let scoped {
             let candidateIds = await resolveAccountScopeCandidates(scoped)
-            var sawEmptyScopedResponse = false
-
             for candidateId in candidateIds {
                 guard let encodedId = Self.percentEncode(candidateId) else { continue }
                 let scopedPaths = [
-                    "api/v1/cloud-accounts/\(encodedId)/deployments?limit=\(limit)",
+                    "api/v1/deployments?limit=\(limit)&cloud_account_id=\(encodedId)&account_id=\(encodedId)",
+                    "api/v1/deployments?cloud_account_id=\(encodedId)&account_id=\(encodedId)&limit=\(limit)",
                     "api/v1/deployments?limit=\(limit)&cloud_account_id=\(encodedId)",
                     "api/v1/deployments?cloud_account_id=\(encodedId)&limit=\(limit)",
                 ]
@@ -347,52 +345,14 @@ final class APIClient {
                         if !list.isEmpty {
                             return deduplicateAndSortDeployments(list)
                         }
-                        sawEmptyScopedResponse = true
                     } catch {
                         lastError = error
                     }
                 }
             }
-
-            // Scope selected: never fall back to tenant-wide data.
-            if sawEmptyScopedResponse {
-                // Account-scoped endpoints responded but returned empty.
-                // Try tenant-wide fetch and filter locally by the candidate account IDs.
-                let tenantFallbackPaths = [
-                    "api/v1/deployments?limit=\(limit)",
-                    "api/v1/deployments",
-                ]
-                let lower = Set(candidateIds.map { $0.lowercased() })
-                for path in tenantFallbackPaths {
-                    if let list = try? await fetchDeploymentList(path: path), !list.isEmpty {
-                        let filtered = list.filter { dep in
-                            let ids = [dep.resolvedAccountId, dep.cloudAccountId, dep.accountId,
-                                       dep.params?["cloud_account_id"], dep.params?["account_id"]]
-                                .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty() }
-                            return ids.contains { lower.contains($0.lowercased()) }
-                        }
-                        if !filtered.isEmpty {
-                            return deduplicateAndSortDeployments(filtered)
-                        }
-                    }
-                }
-                // Last resort: drift-based fallback (scoped by account if possible).
-                let driftFallback = await fetchDeploymentsViaDrift()
-                if !driftFallback.isEmpty {
-                    let filtered = driftFallback.filter { dep in
-                        let ids = [dep.resolvedAccountId, dep.cloudAccountId, dep.accountId,
-                                   dep.params?["cloud_account_id"], dep.params?["account_id"]]
-                            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty() }
-                        return ids.contains { lower.contains($0.lowercased()) }
-                    }
-                    return deduplicateAndSortDeployments(filtered.isEmpty ? driftFallback : filtered)
-                }
-                return []
-            }
-            throw lastError ?? APIError.invalidResponse
+            return []
         }
 
-        // Tenant-wide view: prefer direct tenant endpoints first.
         let tenantPaths = [
             "api/v1/deployments?limit=\(limit)",
             "api/v1/deployments",
@@ -408,100 +368,7 @@ final class APIClient {
             }
         }
 
-        // Tenant-wide aggregation across discovered accounts.
-        let discoveredAccounts = await discoverCloudAccountsDetailed().accounts
-        let accountIds = Array(Set(discoveredAccounts.compactMap { account in
-            let value = (account.requestScopeId ?? account.requestAccountId)?.trimmingCharacters(in: .whitespacesAndNewlines)
-            return (value?.isEmpty == false) ? value : nil
-        }))
-
-        if !accountIds.isEmpty {
-            var merged: [Deployment] = []
-            for accountId in accountIds {
-                guard let encodedId = Self.percentEncode(accountId) else { continue }
-                let accountPaths = [
-                    "api/v1/cloud-accounts/\(encodedId)/deployments?limit=\(limit)",
-                    "api/v1/deployments?limit=\(limit)&cloud_account_id=\(encodedId)",
-                    "api/v1/deployments?cloud_account_id=\(encodedId)&limit=\(limit)",
-                ]
-                for path in accountPaths {
-                    do {
-                        let list = try await fetchDeploymentList(path: path)
-                        merged.append(contentsOf: list)
-                        break
-                    } catch {
-                        lastError = error
-                    }
-                }
-            }
-            if !merged.isEmpty {
-                return deduplicateAndSortDeployments(merged)
-            }
-        }
-
-        for path in tenantPaths {
-            do {
-                return deduplicateAndSortDeployments(try await fetchDeploymentList(path: path))
-            } catch {
-                lastError = error
-            }
-        }
-
-        // Last resort for tenant scope: fetch via drift endpoint + individual detail fetches.
-        let driftFallback = await fetchDeploymentsViaDrift()
-        if !driftFallback.isEmpty {
-            return deduplicateAndSortDeployments(driftFallback)
-        }
-
         throw lastError ?? APIError.invalidResponse
-    }
-
-    /// Fetches deployments using the drift/deployments endpoint as a fallback.
-    /// For each drift item, attempts to resolve a full Deployment via the single-deployment endpoint.
-    /// Falls back to a minimal Deployment built from drift metadata if the detail fetch fails.
-    private func fetchDeploymentsViaDrift() async -> [Deployment] {
-        var driftItems: [DriftDeployment] = []
-        let driftPaths = ["api/v1/drift/deployments?limit=200", "api/v1/drift/deployments"]
-        for path in driftPaths {
-            if let list: [DriftDeployment] = try? await get(path), !list.isEmpty {
-                driftItems = list
-                break
-            }
-            if let wrapped: DriftDeploymentsResponse = try? await get(path), !wrapped.resolved.isEmpty {
-                driftItems = wrapped.resolved
-                break
-            }
-        }
-        guard !driftItems.isEmpty else { return [] }
-
-        var result: [Deployment] = []
-        for item in driftItems {
-            guard let encoded = Self.percentEncode(item.deploymentId) else { continue }
-            if let dep: Deployment = try? await get("api/v1/deployments/\(encoded)") {
-                result.append(dep)
-            } else {
-                result.append(Deployment(
-                    id: item.deploymentId,
-                    name: nil,
-                    displayName: nil,
-                    deploymentName: nil,
-                    environment: nil,
-                    status: item.jobStatus,
-                    driftStatus: item.driftDisplayStatus,
-                    cloudProvider: nil,
-                    region: nil,
-                    blueprintId: nil,
-                    description: nil,
-                    createdAt: item.lastCheckedAt,
-                    updatedAt: item.lastCheckedAt,
-                    accountId: nil,
-                    cloudAccountId: nil,
-                    tenantId: nil,
-                    params: nil
-                ))
-            }
-        }
-        return result
     }
 
     private func resolveAccountScopeCandidates(_ scoped: String) async -> [String] {

@@ -15,6 +15,7 @@ final class DeploymentDetailViewModel: ObservableObject {
 
     private let api = APIClient.shared
     private var pollCount = 0
+    private var driftAfterSeq = 0
 
     func load(deploymentId: String) async {
         isLoading = true
@@ -51,14 +52,14 @@ final class DeploymentDetailViewModel: ObservableObject {
 
         for candidate in candidates {
             do {
-                let _: EmptyResponse = try await api.post(
+                let response: DriftJobQueuedResponse = try await api.post(
                     "api/v1/drift/jobs",
-                    body: DriftJobRequest(deploymentId: deploymentId, cloudAccountId: candidate)
+                    body: DriftJobRequest(deploymentId: deploymentId, cloudAccountId: candidate, accountId: candidate)
                 )
                 actionResult = "Drift check queued. Streaming logs..."
                 isActionRunning = false
                 await refreshDeploymentState(deploymentId: deploymentId)
-                await streamDriftLogs(deploymentId: deploymentId)
+                await streamDriftLogs(deploymentId: deploymentId, jobId: response.jobId)
                 return
             } catch {
                 lastError = error
@@ -101,20 +102,61 @@ final class DeploymentDetailViewModel: ObservableObject {
         isStreaming = false
     }
 
-    private func streamDriftLogs(deploymentId: String) async {
+    private func streamDriftLogs(deploymentId: String, jobId: String?) async {
         isStreaming = true
         pollCount   = 0
-        while pollCount < 40 {
-            try? await Task.sleep(nanoseconds: 3_000_000_000)
-            // Use the same log endpoint as Plan/Apply — it's the only reliably populated path.
-            // Always overwrite so newly-appended drift log entries become visible.
-            if let newLogs: [DeploymentLog] = try? await api.get("api/v1/deployments/\(deploymentId)/logs") {
+        driftAfterSeq = 0
+        while pollCount < 60 {
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            if let normalizedJobId = jobId?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty(),
+               let chunk = try? await fetchDriftJobLogChunk(jobId: normalizedJobId, afterSeq: driftAfterSeq) {
+                if !chunk.logs.isEmpty {
+                    logs.append(contentsOf: chunk.logs)
+                    if let next = chunk.nextAfterSeq {
+                        driftAfterSeq = max(driftAfterSeq, next)
+                    } else {
+                        driftAfterSeq += chunk.logs.count
+                    }
+                }
+            } else if let newLogs: [DeploymentLog] = try? await api.get("api/v1/deployments/\(deploymentId)/logs") {
+                // Fallback for environments without drift job log streaming endpoint.
                 logs = newLogs
             }
             await refreshDeploymentState(deploymentId: deploymentId)
             pollCount += 1
         }
         isStreaming = false
+    }
+
+    private func fetchDriftJobLogChunk(jobId: String, afterSeq: Int) async throws -> (logs: [DeploymentLog], nextAfterSeq: Int?) {
+        let path = "api/v1/drift/jobs/\(jobId)/logs?after_seq=\(afterSeq)&limit=200"
+        let raw = try await api.getJSON(path)
+        guard let root = raw as? [String: Any] else {
+            return ([], nil)
+        }
+
+        let next = root["next_after_seq"] as? Int
+        let rows = (root["logs"] as? [[String: Any]]) ?? []
+        let mapped: [DeploymentLog] = rows.compactMap { row in
+            guard let message = row["message"] as? String else { return nil }
+            let level = (row["level"] as? String) ?? (row["stream"] as? String)
+            let timestamp = Self.parseDriftLogDate(row["ts"] as? String)
+            return DeploymentLog(timestamp: timestamp, level: level, message: message)
+        }
+        return (mapped, next)
+    }
+
+    private static func parseDriftLogDate(_ value: String?) -> Date? {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else {
+            return nil
+        }
+        let withFractional = ISO8601DateFormatter()
+        withFractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let parsed = withFractional.date(from: value) {
+            return parsed
+        }
+        let plain = ISO8601DateFormatter()
+        return plain.date(from: value)
     }
 
     private func fetchDeployment(id: String) async throws -> Deployment {
