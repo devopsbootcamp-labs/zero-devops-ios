@@ -456,10 +456,6 @@ final class APIClient {
         throw lastError ?? APIError.invalidResponse
     }
 
-    private func resolveAccountScopeCandidates(_ scoped: String) async -> [String] {
-        let normalizedScoped = scoped.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalizedScoped.isEmpty else { return [] }
-
     /// Fetches deployments using the drift/deployments endpoint as a fallback.
     /// For each drift item, attempts to resolve a full Deployment via the single-deployment endpoint.
     /// Falls back to a minimal Deployment built from drift metadata if the detail fetch fails.
@@ -468,10 +464,12 @@ final class APIClient {
         let driftPaths = ["api/v1/drift/deployments?limit=200", "api/v1/drift/deployments"]
         for path in driftPaths {
             if let list: [DriftDeployment] = try? await get(path), !list.isEmpty {
-                driftItems = list; break
+                driftItems = list
+                break
             }
             if let wrapped: DriftDeploymentsResponse = try? await get(path), !wrapped.resolved.isEmpty {
-                driftItems = wrapped.resolved; break
+                driftItems = wrapped.resolved
+                break
             }
         }
         guard !driftItems.isEmpty else { return [] }
@@ -505,6 +503,10 @@ final class APIClient {
         }
         return result
     }
+
+    private func resolveAccountScopeCandidates(_ scoped: String) async -> [String] {
+        let normalizedScoped = scoped.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedScoped.isEmpty else { return [] }
 
         var ordered: [String] = []
         var seen = Set<String>()
