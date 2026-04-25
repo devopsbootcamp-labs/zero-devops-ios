@@ -356,6 +356,37 @@ final class APIClient {
 
             // Scope selected: never fall back to tenant-wide data.
             if sawEmptyScopedResponse {
+                // Account-scoped endpoints responded but returned empty.
+                // Try tenant-wide fetch and filter locally by the candidate account IDs.
+                let tenantFallbackPaths = [
+                    "api/v1/deployments?limit=\(limit)",
+                    "api/v1/deployments",
+                ]
+                let lower = Set(candidateIds.map { $0.lowercased() })
+                for path in tenantFallbackPaths {
+                    if let list = try? await fetchDeploymentList(path: path), !list.isEmpty {
+                        let filtered = list.filter { dep in
+                            let ids = [dep.resolvedAccountId, dep.cloudAccountId, dep.accountId,
+                                       dep.params?["cloud_account_id"], dep.params?["account_id"]]
+                                .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty() }
+                            return ids.contains { lower.contains($0.lowercased()) }
+                        }
+                        if !filtered.isEmpty {
+                            return deduplicateAndSortDeployments(filtered)
+                        }
+                    }
+                }
+                // Last resort: drift-based fallback (scoped by account if possible).
+                let driftFallback = await fetchDeploymentsViaDrift()
+                if !driftFallback.isEmpty {
+                    let filtered = driftFallback.filter { dep in
+                        let ids = [dep.resolvedAccountId, dep.cloudAccountId, dep.accountId,
+                                   dep.params?["cloud_account_id"], dep.params?["account_id"]]
+                            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty() }
+                        return ids.contains { lower.contains($0.lowercased()) }
+                    }
+                    return deduplicateAndSortDeployments(filtered.isEmpty ? driftFallback : filtered)
+                }
                 return []
             }
             throw lastError ?? APIError.invalidResponse
@@ -416,12 +447,64 @@ final class APIClient {
             }
         }
 
+        // Last resort for tenant scope: fetch via drift endpoint + individual detail fetches.
+        let driftFallback = await fetchDeploymentsViaDrift()
+        if !driftFallback.isEmpty {
+            return deduplicateAndSortDeployments(driftFallback)
+        }
+
         throw lastError ?? APIError.invalidResponse
     }
 
     private func resolveAccountScopeCandidates(_ scoped: String) async -> [String] {
         let normalizedScoped = scoped.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedScoped.isEmpty else { return [] }
+
+    /// Fetches deployments using the drift/deployments endpoint as a fallback.
+    /// For each drift item, attempts to resolve a full Deployment via the single-deployment endpoint.
+    /// Falls back to a minimal Deployment built from drift metadata if the detail fetch fails.
+    private func fetchDeploymentsViaDrift() async -> [Deployment] {
+        var driftItems: [DriftDeployment] = []
+        let driftPaths = ["api/v1/drift/deployments?limit=200", "api/v1/drift/deployments"]
+        for path in driftPaths {
+            if let list: [DriftDeployment] = try? await get(path), !list.isEmpty {
+                driftItems = list; break
+            }
+            if let wrapped: DriftDeploymentsResponse = try? await get(path), !wrapped.resolved.isEmpty {
+                driftItems = wrapped.resolved; break
+            }
+        }
+        guard !driftItems.isEmpty else { return [] }
+
+        var result: [Deployment] = []
+        for item in driftItems {
+            guard let encoded = Self.percentEncode(item.deploymentId) else { continue }
+            if let dep: Deployment = try? await get("api/v1/deployments/\(encoded)") {
+                result.append(dep)
+            } else {
+                result.append(Deployment(
+                    id: item.deploymentId,
+                    name: nil,
+                    displayName: nil,
+                    deploymentName: nil,
+                    environment: nil,
+                    status: item.jobStatus,
+                    driftStatus: item.driftDisplayStatus,
+                    cloudProvider: nil,
+                    region: nil,
+                    blueprintId: nil,
+                    description: nil,
+                    createdAt: item.lastCheckedAt,
+                    updatedAt: item.lastCheckedAt,
+                    accountId: nil,
+                    cloudAccountId: nil,
+                    tenantId: nil,
+                    params: nil
+                ))
+            }
+        }
+        return result
+    }
 
         var ordered: [String] = []
         var seen = Set<String>()

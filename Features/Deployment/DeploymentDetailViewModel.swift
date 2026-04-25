@@ -106,29 +106,15 @@ final class DeploymentDetailViewModel: ObservableObject {
         pollCount   = 0
         while pollCount < 40 {
             try? await Task.sleep(nanoseconds: 3_000_000_000)
-            if let newLogs = try? await fetchDriftLogs(deploymentId: deploymentId), !newLogs.isEmpty {
+            // Use the same log endpoint as Plan/Apply — it's the only reliably populated path.
+            // Always overwrite so newly-appended drift log entries become visible.
+            if let newLogs: [DeploymentLog] = try? await api.get("api/v1/deployments/\(deploymentId)/logs") {
                 logs = newLogs
             }
             await refreshDeploymentState(deploymentId: deploymentId)
             pollCount += 1
         }
         isStreaming = false
-    }
-
-    private func fetchDriftLogs(deploymentId: String) async throws -> [DeploymentLog] {
-        let paths = [
-            "api/v1/deployments/\(deploymentId)/drift/logs",
-            "api/v1/drift/deployments/\(deploymentId)/logs",
-            "api/v1/drift/jobs/\(deploymentId)/logs",
-            "api/v1/deployments/\(deploymentId)/logs?source=drift",
-            "api/v1/deployments/\(deploymentId)/logs",
-        ]
-        for path in paths {
-            if let list: [DeploymentLog] = try? await api.get(path), !list.isEmpty {
-                return list
-            }
-        }
-        return []
     }
 
     private func fetchDeployment(id: String) async throws -> Deployment {
