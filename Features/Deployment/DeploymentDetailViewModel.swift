@@ -53,11 +53,15 @@ final class DeploymentDetailViewModel: ObservableObject {
                 "api/v1/drift/jobs",
                 body: DriftJobRequest(deploymentId: deploymentId, cloudAccountId: cloudAccountId)
             )
-            actionResult = "Drift check queued."
+            actionResult = "Drift check queued. Streaming logs..."
         } catch {
             actionResult = error.localizedDescription
+            isActionRunning = false
+            return
         }
         isActionRunning = false
+        await refreshDeploymentState(deploymentId: deploymentId)
+        await streamLogs(deploymentId: deploymentId)
     }
 
     func runDestroy(deploymentId: String) async -> Bool {
@@ -100,6 +104,12 @@ final class DeploymentDetailViewModel: ObservableObject {
     }
     private func fetchLogs(id: String) async throws -> [DeploymentLog] {
         try await api.get("api/v1/deployments/\(id)/logs")
+    }
+
+    private func refreshDeploymentState(deploymentId: String) async {
+        if let updated: Deployment = try? await api.get("api/v1/deployments/\(deploymentId)") {
+            deployment = updated
+        }
     }
 }
 
