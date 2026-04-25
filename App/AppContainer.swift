@@ -52,8 +52,11 @@ final class AppContainer: ObservableObject {
     func onAppear() {
         if sessionManager.resumeIfAvailable() {
             hydrateContextFromStoredBundle()
-            Task { await ensureTenantContext() }
-            sessionReady = true
+            Task {
+                await populateTenantPreflight()
+                sessionReady = true
+                Task { await ensureTenantContext() }
+            }
         }
     }
 
@@ -150,24 +153,49 @@ final class AppContainer: ObservableObject {
         )
     }
 
-    /// Tries to populate tenantId from /auth/me within a 3-second cap.
-    /// Called before setting sessionReady so first-render API calls carry x-tenant-id.
+    /// Populate tenantId before sessionReady so every first-render API call carries
+    /// x-tenant-id.  Tries profile endpoints first (fast when backend maps from JWT),
+    /// then falls back to the tenant-list endpoint which works on most backends
+    /// without an existing x-tenant-id header.  Capped at 5 s so a slow/unreachable
+    /// API never re-introduces the login-spinner hang.
     private func populateTenantPreflight() async {
         guard normalizedValue(tenantId) == nil else { return }
         await withTaskGroup(of: Void.self) { group in
             group.addTask {
-                if let profile: UserProfile = try? await APIClient.shared.get("api/v1/auth/me"),
-                   let tid = profile.tenantId?.trimmingCharacters(in: .whitespacesAndNewlines),
+                // 1. Profile endpoints — many backends embed tenantId in their /me response.
+                let profilePaths = [
+                    "api/v1/auth/me",
+                    "api/v1/auth/userinfo",
+                    "api/v1/users/me",
+                    "api/v1/auth/profile",
+                    "api/v1/me",
+                ]
+                for path in profilePaths {
+                    if let profile: UserProfile = try? await APIClient.shared.get(path),
+                       let tid = profile.tenantId?.trimmingCharacters(in: .whitespacesAndNewlines),
+                       !tid.isEmpty {
+                        await MainActor.run {
+                            self.tenantId = tid
+                            self.sessionManager.updateRequestContext(
+                                tenantId: tid, accountId: self.selectedAccountId)
+                        }
+                        return
+                    }
+                }
+                // 2. Tenant-list endpoint — works without x-tenant-id on most backends
+                //    because the server resolves the caller's tenant from the JWT sub/email.
+                //    This is the common path when Keycloak doesn't embed a tenantId claim.
+                if let tenants: [TenantIdentity] = try? await APIClient.shared.get("api/v1/tenants"),
+                   let tid = tenants.first?.id.trimmingCharacters(in: .whitespacesAndNewlines),
                    !tid.isEmpty {
                     await MainActor.run {
                         self.tenantId = tid
-                        self.sessionManager.updateRequestContext(tenantId: tid, accountId: self.selectedAccountId)
+                        self.sessionManager.updateRequestContext(
+                            tenantId: tid, accountId: self.selectedAccountId)
                     }
                 }
             }
-            group.addTask {
-                try? await Task.sleep(nanoseconds: 3_000_000_000)
-            }
+            group.addTask { try? await Task.sleep(nanoseconds: 5_000_000_000) }
             _ = await group.next()
             group.cancelAll()
         }
