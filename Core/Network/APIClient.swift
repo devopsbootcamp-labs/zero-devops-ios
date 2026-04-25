@@ -234,16 +234,34 @@ final class APIClient {
 
         // Final fallback: group tenant-wide deployments by their cloudAccountId to
         // surface accounts that exist but whose account endpoint is unavailable.
-        // This uses actual account IDs from deployment metadata, NOT deployment names.
+        // Use direct tenant deployment endpoints here to avoid recursive fallback loops
+        // with fetchDeploymentsScoped(accountId: nil).
         do {
-            let deployments = try await fetchDeploymentsScoped(accountId: nil, limit: 500)
-            let derived = deduplicateAccounts(deriveAccounts(from: deployments))
+            let tenantPaths = [
+                "api/v1/deployments?limit=500",
+                "api/v1/deployments",
+            ]
+            var tenantDeployments: [Deployment] = []
+            var tenantError: Error?
+            for path in tenantPaths {
+                do {
+                    tenantDeployments = try await fetchDeploymentList(path: path)
+                    if !tenantDeployments.isEmpty {
+                        break
+                    }
+                } catch {
+                    tenantError = error
+                }
+            }
+
+            let derived = deduplicateAccounts(deriveAccounts(from: tenantDeployments))
             diagnostics.append("deployments-derived: \(derived.count)")
             if !derived.isEmpty {
                 return CloudAccountDiscoveryResult(accounts: derived, diagnostics: diagnostics)
             }
-        } catch {
-            diagnostics.append("deployments-derived failed: \(error.localizedDescription)")
+            if tenantDeployments.isEmpty, let tenantError {
+                diagnostics.append("deployments-derived failed: \(tenantError.localizedDescription)")
+            }
         }
 
         return CloudAccountDiscoveryResult(accounts: [], diagnostics: diagnostics)
