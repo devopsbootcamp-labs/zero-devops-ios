@@ -47,6 +47,11 @@ final class APIClient {
 
     private let baseURL = URL(string: AppConfig.apiBaseURL)!
     private let sessionManager = AuthSessionManager.shared
+
+    private struct TenantIdentity: Decodable {
+        let id: String
+    }
+
     private let decoder: JSONDecoder = {
         let d = JSONDecoder()
         d.keyDecodingStrategy  = .convertFromSnakeCase
