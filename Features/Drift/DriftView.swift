@@ -63,6 +63,9 @@ struct DriftView: View {
         .onChange(of: container.selectedAccountId) { _ in
             Task { await vm.load(accountId: container.selectedAccountId) }
         }
+        .onChange(of: container.tenantId) { _ in
+            Task { await vm.load(accountId: container.selectedAccountId) }
+        }
     }
 }
 

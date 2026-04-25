@@ -44,6 +44,9 @@ struct DeploymentsView: View {
         .onChange(of: container.selectedAccountId) { _ in
             Task { await vm.load(accountId: nil) }
         }
+        .onChange(of: container.tenantId) { _ in
+            Task { await vm.load(accountId: nil) }
+        }
     }
 }
 
@@ -131,6 +134,9 @@ struct ResourcesView: View {
         .task { await vm.load(accountId: container.selectedAccountId) }
         .refreshable { await vm.load(accountId: container.selectedAccountId) }
         .onChange(of: container.selectedAccountId) { _ in
+            Task { await vm.load(accountId: container.selectedAccountId) }
+        }
+        .onChange(of: container.tenantId) { _ in
             Task { await vm.load(accountId: container.selectedAccountId) }
         }
     }

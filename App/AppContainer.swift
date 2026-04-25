@@ -74,10 +74,17 @@ final class AppContainer: ObservableObject {
                 }
                 sessionManager.saveBundle(bundle)
                 hydrateContext(from: bundle)
+
+                // Bounded preflight: fetch tenant/profile (≤3 s) before showing the main
+                // shell so the x-tenant-id header is set on every first-render API call.
+                // Many Keycloak deployments do NOT embed tenantId in the JWT, so without
+                // this step views load with no tenant context and receive 403/empty data.
+                // onChange(of: tenantId) in each data view handles the slow-preflight path.
+                await populateTenantPreflight()
+
                 sessionReady = true
 
-                // Never block login completion on downstream API calls.
-                // Context enrichment is best-effort and can happen after entering the app.
+                // Full context enrichment (account discovery etc.) in background.
                 Task { await ensureTenantContext() }
             } catch {
                 loginError  = error.localizedDescription
@@ -141,6 +148,29 @@ final class AppContainer: ObservableObject {
             tenantId: tenantId,
             accountId: selectedAccountId
         )
+    }
+
+    /// Tries to populate tenantId from /auth/me within a 3-second cap.
+    /// Called before setting sessionReady so first-render API calls carry x-tenant-id.
+    private func populateTenantPreflight() async {
+        guard normalizedValue(tenantId) == nil else { return }
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask {
+                if let profile: UserProfile = try? await APIClient.shared.get("api/v1/auth/me"),
+                   let tid = profile.tenantId?.trimmingCharacters(in: .whitespacesAndNewlines),
+                   !tid.isEmpty {
+                    await MainActor.run {
+                        self.tenantId = tid
+                        self.sessionManager.updateRequestContext(tenantId: tid, accountId: self.selectedAccountId)
+                    }
+                }
+            }
+            group.addTask {
+                try? await Task.sleep(nanoseconds: 3_000_000_000)
+            }
+            _ = await group.next()
+            group.cancelAll()
+        }
     }
 
     private func fetchCurrentProfile() async -> UserProfile? {
