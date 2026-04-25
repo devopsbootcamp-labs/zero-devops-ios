@@ -33,7 +33,6 @@ final class DriftViewModel: ObservableObject {
         async let p  = fetchPosture(accountId: accountId)
         async let d  = fetchDriftDeployments(accountId: accountId)
         async let deps = fetchDeployments(accountId: accountId)
-        async let accounts = api.discoverCloudAccountsDetailed()
 
         var failures: [String] = []
 
@@ -49,15 +48,19 @@ final class DriftViewModel: ObservableObject {
         do { driftResult = .success(try await d) } catch { driftResult = .failure(error) }
         let depsResult: Result<[Deployment], Error>
         do { depsResult = .success(try await deps) } catch { depsResult = .failure(error) }
-        let discoveredAccounts = await accounts.accounts
 
         let deploymentList = (try? depsResult.get()) ?? []
         nameMap    = Dictionary(uniqueKeysWithValues: deploymentList.map { ($0.id, $0.resolvedName) })
-        // Build deployment -> canonical account scope map so drift jobs carry the
-        // exact cloud account identifier expected by the backend credential resolver.
+        // Use deployment-native account identifiers for drift job payloads.
+        // This avoids mis-mapping to unrelated account scope IDs.
         accountMap = deploymentList.reduce(into: [:]) { map, dep in
-            if let aid = resolveScopeAccountId(for: dep, accounts: discoveredAccounts, scopeAccountId: accountId) {
-                map[dep.id] = aid
+            let aid = dep.params?["cloud_account_id"]
+                ?? dep.params?["account_id"]
+                ?? dep.cloudAccountId
+                ?? dep.accountId
+                ?? dep.resolvedAccountId
+            if let normalized = normalizeIdentifier(aid) {
+                map[dep.id] = normalized
             }
         }
 
@@ -95,12 +98,8 @@ final class DriftViewModel: ObservableObject {
         isLoading = false
     }
 
-    /// Trigger a drift check.  Pass `scopeAccountId` from the container's
-    /// selectedAccountId so tenant-scope and account-scope runs both work.
-    func triggerCheck(deploymentId: String, scopeAccountId: String? = nil) async {
-        // Prefer deployment-specific account, fall back to view scope, then omit.
+    func triggerCheck(deploymentId: String) async {
         let cloudAccountId = accountMap[deploymentId]
-            ?? scopeAccountId?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty()
         do {
             let _: EmptyResponse = try await api.post(
                 "api/v1/drift/jobs",
@@ -112,9 +111,9 @@ final class DriftViewModel: ObservableObject {
         }
     }
 
-    func runAllChecks(scopeAccountId: String? = nil) async {
+    func runAllChecks() async {
         for item in items {
-            await triggerCheck(deploymentId: item.deploymentId, scopeAccountId: scopeAccountId)
+            await triggerCheck(deploymentId: item.deploymentId)
         }
     }
 
@@ -140,41 +139,6 @@ final class DriftViewModel: ObservableObject {
 
     private func fetchDeployments(accountId: String?) async throws -> [Deployment] {
         try await api.fetchDeploymentsScoped(accountId: accountId, limit: 500)
-    }
-
-    private func resolveScopeAccountId(for deployment: Deployment, accounts: [CloudAccount], scopeAccountId: String?) -> String? {
-        let deploymentProvider = normalizeIdentifier(deployment.cloudProvider)
-        let deploymentCandidates = Set([
-            deployment.cloudAccountId,
-            deployment.accountId,
-            deployment.resolvedAccountId,
-            deployment.params?["cloud_account_id"],
-            deployment.params?["account_id"],
-            deployment.params?["cloudAccountId"],
-            deployment.params?["accountId"],
-        ].compactMap(normalizeIdentifier).map { $0.lowercased() })
-
-        let matchedAccount = accounts.first { account in
-            let accountProvider = normalizeIdentifier(account.provider ?? account.cloudProvider)
-            if let deploymentProvider, let accountProvider, deploymentProvider.lowercased() != accountProvider.lowercased() {
-                return false
-            }
-            let accountCandidates = [
-                account.requestScopeId,
-                account.cloudAccountId,
-                account.id,
-                account.accountIdentifier,
-                account.accountId,
-                account.externalAccountId,
-            ].compactMap(normalizeIdentifier).map { $0.lowercased() }
-            return !deploymentCandidates.isDisjoint(with: Set(accountCandidates))
-        }
-
-        return matchedAccount?.requestScopeId
-            ?? normalizeIdentifier(deployment.cloudAccountId)
-            ?? normalizeIdentifier(deployment.accountId)
-            ?? normalizeIdentifier(deployment.resolvedAccountId)
-            ?? normalizeIdentifier(scopeAccountId)
     }
 
     private func normalizeIdentifier(_ value: String?) -> String? {

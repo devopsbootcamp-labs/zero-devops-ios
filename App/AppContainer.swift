@@ -138,13 +138,6 @@ final class AppContainer: ObservableObject {
             tenantId = normalizedValue(tenants.first?.id)
         }
 
-        if !isUsableAccountId(selectedAccountId) {
-            let accounts = await api.discoverCloudAccounts()
-            if let discovered = accounts.first(where: { isUsableAccountId($0.requestScopeId) })?.requestScopeId {
-                selectedAccountId = discovered
-            }
-        }
-
         tenantId = normalizedValue(tenantId)
 
         sessionManager.updateRequestContext(

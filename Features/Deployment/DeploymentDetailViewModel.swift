@@ -45,9 +45,12 @@ final class DeploymentDetailViewModel: ObservableObject {
     func runDriftCheck(deploymentId: String) async {
         isActionRunning = true
         actionResult    = nil
-        // Resolve canonical cloud-account scope id so backend credential lookup works
-        // across providers (notably GCP project/account aliases).
-        let cloudAccountId = await resolveDriftCloudAccountId()
+        // Use deployment-native account identifiers for backend credential lookup.
+        let cloudAccountId = deployment?.params?["cloud_account_id"]
+            ?? deployment?.params?["account_id"]
+            ?? deployment?.cloudAccountId
+            ?? deployment?.accountId
+            ?? deployment?.resolvedAccountId
         do {
             let _: EmptyResponse = try await api.post(
                 "api/v1/drift/jobs",
@@ -140,48 +143,6 @@ final class DeploymentDetailViewModel: ObservableObject {
         if let updated: Deployment = try? await api.get("api/v1/deployments/\(deploymentId)") {
             deployment = updated
         }
-    }
-
-    private func resolveDriftCloudAccountId() async -> String? {
-        guard let dep = deployment else { return nil }
-
-        let deploymentProvider = normalizeIdentifier(dep.cloudProvider)
-        let deploymentCandidates = Set([
-            dep.cloudAccountId,
-            dep.accountId,
-            dep.resolvedAccountId,
-            dep.params?["cloud_account_id"],
-            dep.params?["account_id"],
-            dep.params?["cloudAccountId"],
-            dep.params?["accountId"],
-        ].compactMap(normalizeIdentifier).map { $0.lowercased() })
-
-        let accounts = await api.discoverCloudAccountsDetailed().accounts
-        let matched = accounts.first { account in
-            let accountProvider = normalizeIdentifier(account.provider ?? account.cloudProvider)
-            if let deploymentProvider, let accountProvider,
-               deploymentProvider.lowercased() != accountProvider.lowercased() {
-                return false
-            }
-            let accountCandidates = [
-                account.requestScopeId,
-                account.cloudAccountId,
-                account.id,
-                account.accountIdentifier,
-                account.accountId,
-                account.externalAccountId,
-            ].compactMap(normalizeIdentifier).map { $0.lowercased() }
-            return !deploymentCandidates.isDisjoint(with: Set(accountCandidates))
-        }
-
-        return matched?.requestScopeId
-            ?? normalizeIdentifier(dep.cloudAccountId)
-            ?? normalizeIdentifier(dep.accountId)
-            ?? normalizeIdentifier(dep.resolvedAccountId)
-    }
-
-    private func normalizeIdentifier(_ value: String?) -> String? {
-        value?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty()
     }
 }
 
