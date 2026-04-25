@@ -1,5 +1,15 @@
 import Foundation
 
+// MARK: - Helpers
+
+extension String {
+    /// Returns nil when the string is empty after whitespace trimming.
+    func nilIfEmpty() -> String? {
+        let t = trimmingCharacters(in: .whitespacesAndNewlines)
+        return t.isEmpty ? nil : t
+    }
+}
+
 // MARK: - CloudAccount
 
 struct CloudAccount: Decodable, Identifiable, Hashable {
@@ -268,10 +278,15 @@ struct DriftDeployment: Codable, Identifiable {
 }
 
 struct DriftJobRequest: Encodable {
-    let deploymentId: String
+    let deploymentId:    String
+    let cloudAccountId:  String?
 
+    /// Backend requires cloud_account_id to resolve the correct cloud-connect
+    /// credentials for drift detection.  Include it in the request body whenever
+    /// it is known so both account-scope and tenant-scope runs succeed.
     enum CodingKeys: String, CodingKey {
-        case deploymentId = "deployment_id"
+        case deploymentId   = "deployment_id"
+        case cloudAccountId = "cloud_account_id"
     }
 }
 

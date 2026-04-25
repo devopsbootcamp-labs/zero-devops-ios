@@ -3,13 +3,15 @@ import Foundation
 @MainActor
 final class DriftViewModel: ObservableObject {
 
-    @Published var posture:     DriftPosture?
-    @Published var items:       [DriftDeployment] = []
-    @Published var nameMap:     [String: String]  = [:]
-    @Published var isLoading    = false
-    @Published var error:       String?
+    @Published var posture:       DriftPosture?
+    @Published var items:         [DriftDeployment] = []
+    @Published var nameMap:       [String: String]  = [:]
+    @Published var isLoading      = false
+    @Published var error:         String?
     @Published var triggerResult: String?
 
+    /// Maps deploymentId → cloudAccountId so drift jobs carry the right credential scope.
+    private var accountMap: [String: String] = [:]
     private let api = APIClient.shared
 
     private func isIgnorableDriftError(_ error: Error) -> Bool {
@@ -48,7 +50,11 @@ final class DriftViewModel: ObservableObject {
         do { depsResult = .success(try await deps) } catch { depsResult = .failure(error) }
 
         let deploymentList = (try? depsResult.get()) ?? []
-        nameMap = Dictionary(uniqueKeysWithValues: deploymentList.map { ($0.id, $0.resolvedName) })
+        nameMap    = Dictionary(uniqueKeysWithValues: deploymentList.map { ($0.id, $0.resolvedName) })
+        // Build cloud-account map so triggerCheck can include cloud_account_id in the job body.
+        accountMap = deploymentList.reduce(into: [:]) { map, dep in
+            if let aid = dep.cloudAccountId ?? dep.accountId { map[dep.id] = aid }
+        }
 
         if let driftItems = try? driftResult.get(), !driftItems.isEmpty {
             items = driftItems
@@ -84,21 +90,26 @@ final class DriftViewModel: ObservableObject {
         isLoading = false
     }
 
-    func triggerCheck(deploymentId: String) async {
+    /// Trigger a drift check.  Pass `scopeAccountId` from the container's
+    /// selectedAccountId so tenant-scope and account-scope runs both work.
+    func triggerCheck(deploymentId: String, scopeAccountId: String? = nil) async {
+        // Prefer deployment-specific account, fall back to view scope, then omit.
+        let cloudAccountId = accountMap[deploymentId]
+            ?? scopeAccountId?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty()
         do {
             let _: EmptyResponse = try await api.post(
                 "api/v1/drift/jobs",
-                body: DriftJobRequest(deploymentId: deploymentId)
+                body: DriftJobRequest(deploymentId: deploymentId, cloudAccountId: cloudAccountId)
             )
             triggerResult = "Drift check queued for \(nameMap[deploymentId] ?? deploymentId)."
         } catch {
-            triggerResult = error.localizedDescription
+            triggerResult = "Drift check failed: \(error.localizedDescription)"
         }
     }
 
-    func runAllChecks() async {
+    func runAllChecks(scopeAccountId: String? = nil) async {
         for item in items {
-            await triggerCheck(deploymentId: item.deploymentId)
+            await triggerCheck(deploymentId: item.deploymentId, scopeAccountId: scopeAccountId)
         }
     }
 

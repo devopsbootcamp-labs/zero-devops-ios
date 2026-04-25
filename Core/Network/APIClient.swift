@@ -828,7 +828,8 @@ final class APIClient {
         if normalized.hasPrefix("/api/v1/inventory") { return false }
         if normalized.hasPrefix("/api/v1/drift/posture") { return false }
         if normalized.hasPrefix("/api/v1/drift/deployments") { return false }
-        if normalized.hasPrefix("/api/v1/drift/jobs") { return false }
+        // drift/jobs needs x-account-id so backend resolves cloud-connect credentials
+        // when cloud_account_id is not present in the JWT or the request body.
         if normalized.hasPrefix("/api/v1/deployments") { return false }
 
         // Avoid duplicate account scoping when account is already in path.

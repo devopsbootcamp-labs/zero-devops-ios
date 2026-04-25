@@ -26,7 +26,7 @@ struct DriftView: View {
                 DriftItemRow(
                     item:         item,
                     name:         vm.nameMap[item.deploymentId] ?? item.deploymentId,
-                    onTrigger:    { Task { await vm.triggerCheck(deploymentId: item.deploymentId) } }
+                    onTrigger:    { Task { await vm.triggerCheck(deploymentId: item.deploymentId, scopeAccountId: container.selectedAccountId) } }
                 )
             }
             .listStyle(.plain)
@@ -34,7 +34,7 @@ struct DriftView: View {
         .navigationTitle("Drift")
         .toolbar {
             ToolbarItemGroup(placement: .navigationBarTrailing) {
-                Button { Task { await vm.runAllChecks() } } label: {
+                Button { Task { await vm.runAllChecks(scopeAccountId: container.selectedAccountId) } } label: {
                     Label("Run All", systemImage: "play.fill")
                         .font(.caption)
                 }

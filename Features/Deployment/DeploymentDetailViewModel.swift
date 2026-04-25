@@ -45,10 +45,13 @@ final class DeploymentDetailViewModel: ObservableObject {
     func runDriftCheck(deploymentId: String) async {
         isActionRunning = true
         actionResult    = nil
+        // Include the deployment's cloud account ID so the backend resolves
+        // the correct cloud-connect credentials (fixes "credentials fetch failed").
+        let cloudAccountId = deployment?.cloudAccountId ?? deployment?.accountId
         do {
             let _: EmptyResponse = try await api.post(
                 "api/v1/drift/jobs",
-                body: DriftJobRequest(deploymentId: deploymentId)
+                body: DriftJobRequest(deploymentId: deploymentId, cloudAccountId: cloudAccountId)
             )
             actionResult = "Drift check queued."
         } catch {
