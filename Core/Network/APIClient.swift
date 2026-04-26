@@ -808,14 +808,27 @@ final class APIClient {
 
     private func parseDeployments(from raw: Any) -> [Deployment] {
         if let array = raw as? [[String: Any]] {
-            return array.compactMap(deploymentFromDictionary)
+            var parsed: [Deployment] = []
+            for item in array {
+                if let nested = item["deployment"] as? [String: Any], let dep = deploymentFromDictionary(nested) {
+                    parsed.append(dep)
+                    continue
+                }
+                if let dep = deploymentFromDictionary(item) {
+                    parsed.append(dep)
+                }
+            }
+            return parsed
         }
         if let dict = raw as? [String: Any] {
-            for key in ["deployments", "data", "items", "results", "rows"] {
+            for key in ["deployments", "data", "items", "results", "rows", "records", "deployment"] {
                 if let nested = dict[key] {
                     let parsed = parseDeployments(from: nested)
                     if !parsed.isEmpty { return parsed }
                 }
+            }
+            if let nested = dict["deployment"] as? [String: Any], let dep = deploymentFromDictionary(nested) {
+                return [dep]
             }
             if let one = deploymentFromDictionary(dict) { return [one] }
         }

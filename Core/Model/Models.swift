@@ -588,6 +588,29 @@ struct ChatResponse: Decodable {
 struct ChatRoom: Decodable, Identifiable {
     let id: String
     let name: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case roomId = "roomId"
+        case room_id
+        case name
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let resolved =
+            (try? c.decodeIfPresent(String.self, forKey: .id))?.nilIfEmpty()
+            ?? (try? c.decodeIfPresent(String.self, forKey: .roomId))?.nilIfEmpty()
+            ?? (try? c.decodeIfPresent(String.self, forKey: .room_id))?.nilIfEmpty()
+        guard let resolved else {
+            throw DecodingError.keyNotFound(
+                CodingKeys.id,
+                DecodingError.Context(codingPath: decoder.codingPath, debugDescription: "Missing room id")
+            )
+        }
+        id = resolved
+        name = (try? c.decodeIfPresent(String.self, forKey: .name)) ?? nil
+    }
 }
 
 struct ChatRoomsResponse: Decodable {

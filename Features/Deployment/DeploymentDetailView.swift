@@ -86,10 +86,15 @@ struct DeploymentDetailView: View {
                 }
 
                 // Logs
-                if !vm.logs.isEmpty {
+                if vm.isStreaming || !vm.logs.isEmpty {
                     GroupBox(label: Label("Logs" + (vm.isStreaming ? "  ●" : ""), systemImage: "terminal")) {
                         ScrollView(.vertical) {
                             VStack(alignment: .leading, spacing: 2) {
+                                if vm.logs.isEmpty {
+                                    Text("No logs yet. Streaming will show new lines as they arrive.")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
                                 ForEach(vm.logs) { log in
                                     HStack(alignment: .top, spacing: 6) {
                                         if let ts = log.timestamp {

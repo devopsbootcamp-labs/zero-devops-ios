@@ -146,28 +146,27 @@ final class DeploymentDetailViewModel: ObservableObject {
     }
 
     private func resolveLatestDriftJobId(deploymentId: String) async -> String? {
-        let activeStatuses = ["running", "pending", "queued"]
-        for status in activeStatuses {
-            if let jobs: DriftJobsResponse = try? await api.get("api/v1/drift/jobs?deployment_id=\(deploymentId)&status=\(status)&limit=1"),
-               let id = jobs.items.first?.id?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty() {
+        if let jobs: DriftJobsResponse = try? await api.get("api/v1/drift/jobs?deployment_id=\(deploymentId)&limit=20") {
+            let active = jobs.items.first { item in
+                guard let status = item.status?.lowercased() else { return false }
+                return status == "running" || status == "pending" || status == "queued"
+            }
+            if let id = active?.id?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty() {
                 return id
             }
-        }
-        if let jobs: DriftJobsResponse = try? await api.get("api/v1/drift/jobs?deployment_id=\(deploymentId)&limit=1") {
             return jobs.items.first?.id?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty()
         }
         return nil
     }
 
     private func fetchLatestDriftJob(deploymentId: String) async -> DriftJobItem? {
-        let activeStatuses = ["running", "pending", "queued"]
-        for status in activeStatuses {
-            if let jobs: DriftJobsResponse = try? await api.get("api/v1/drift/jobs?deployment_id=\(deploymentId)&status=\(status)&limit=1"),
-               let active = jobs.items.first {
+        if let jobs: DriftJobsResponse = try? await api.get("api/v1/drift/jobs?deployment_id=\(deploymentId)&limit=20") {
+            if let active = jobs.items.first(where: { item in
+                guard let status = item.status?.lowercased() else { return false }
+                return status == "running" || status == "pending" || status == "queued"
+            }) {
                 return active
             }
-        }
-        if let jobs: DriftJobsResponse = try? await api.get("api/v1/drift/jobs?deployment_id=\(deploymentId)&limit=1") {
             return jobs.items.first
         }
         return nil
