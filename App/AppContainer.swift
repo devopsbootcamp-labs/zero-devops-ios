@@ -114,10 +114,9 @@ final class AppContainer: ObservableObject {
 
     private func hydrateContext(from bundle: TokenBundle) {
         tenantId = normalizedValue(bundle.tenantId) ?? normalizedValue(sessionManager.currentTenantId())
-        let scope = normalizedValue(bundle.cloudAccountId)
-            ?? normalizedValue(bundle.accountId)
-            ?? normalizedValue(sessionManager.currentAccountId())
-        selectedAccountId = isUsableAccountId(scope) ? scope : nil
+        // Enterprise default: start in tenant scope and only switch to account scope
+        // when the user explicitly selects an account in the UI.
+        selectedAccountId = nil
         sessionManager.updateRequestContext(
             tenantId: tenantId,
             accountId: selectedAccountId
@@ -127,10 +126,6 @@ final class AppContainer: ObservableObject {
     private func ensureTenantContext() async {
         if normalizedValue(tenantId) == nil, let profile = await fetchCurrentProfile() {
             tenantId = normalizedValue(profile.tenantId) ?? normalizedValue(tenantId)
-            if !isUsableAccountId(selectedAccountId) {
-                let scope = normalizedValue(profile.cloudAccountId) ?? normalizedValue(profile.accountId)
-                selectedAccountId = isUsableAccountId(scope) ? scope : nil
-            }
         }
 
         if normalizedValue(tenantId) == nil,

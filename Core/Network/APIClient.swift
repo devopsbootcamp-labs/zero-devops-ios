@@ -331,6 +331,7 @@ final class APIClient {
         var lastError: Error?
         if let scoped {
             let candidateIds = await resolveAccountScopeCandidates(scoped)
+            var sawScopedResponse = false
             for candidateId in candidateIds {
                 guard let encodedId = Self.percentEncode(candidateId) else { continue }
                 let scopedPaths = [
@@ -341,6 +342,7 @@ final class APIClient {
                 for path in scopedPaths {
                     do {
                         let list = try await fetchDeploymentList(path: path)
+                        sawScopedResponse = true
                         if !list.isEmpty {
                             return deduplicateAndSortDeployments(list)
                         }
@@ -348,6 +350,31 @@ final class APIClient {
                         lastError = error
                     }
                 }
+            }
+
+            // Fallback: canonical tenant list + local account filter.
+            // This keeps account scope usable when account-specific routes are sparse.
+            let tenantPaths = [
+                "api/v1/deployments?limit=\(limit)",
+                "api/v1/deployments",
+            ]
+            let lower = Set(candidateIds.map { $0.lowercased() })
+            for path in tenantPaths {
+                if let list = try? await fetchDeploymentList(path: path), !list.isEmpty {
+                    let filtered = list.filter { dep in
+                        let ids = [dep.resolvedAccountId, dep.cloudAccountId, dep.accountId,
+                                   dep.params?["cloud_account_id"], dep.params?["account_id"]]
+                            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty() }
+                        return ids.contains { lower.contains($0.lowercased()) }
+                    }
+                    if !filtered.isEmpty {
+                        return deduplicateAndSortDeployments(filtered)
+                    }
+                }
+            }
+
+            if sawScopedResponse {
+                return []
             }
             return []
         }

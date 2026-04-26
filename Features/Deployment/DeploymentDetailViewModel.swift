@@ -106,9 +106,13 @@ final class DeploymentDetailViewModel: ObservableObject {
         isStreaming = true
         pollCount   = 0
         driftAfterSeq = 0
+        var activeJobId = jobId?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty()
         while pollCount < 60 {
             try? await Task.sleep(nanoseconds: 2_000_000_000)
-            if let normalizedJobId = jobId?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty(),
+            if activeJobId == nil {
+                activeJobId = await resolveLatestDriftJobId(deploymentId: deploymentId)
+            }
+            if let normalizedJobId = activeJobId,
                let chunk = try? await fetchDriftJobLogChunk(jobId: normalizedJobId, afterSeq: driftAfterSeq) {
                 if !chunk.logs.isEmpty {
                     logs.append(contentsOf: chunk.logs)
@@ -126,6 +130,13 @@ final class DeploymentDetailViewModel: ObservableObject {
             pollCount += 1
         }
         isStreaming = false
+    }
+
+    private func resolveLatestDriftJobId(deploymentId: String) async -> String? {
+        guard let jobs: DriftJobsResponse = try? await api.get("api/v1/drift/jobs?deployment_id=\(deploymentId)&limit=1") else {
+            return nil
+        }
+        return jobs.items.first?.id?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty()
     }
 
     private func fetchDriftJobLogChunk(jobId: String, afterSeq: Int) async throws -> (logs: [DeploymentLog], nextAfterSeq: Int?) {
@@ -198,3 +209,11 @@ final class DeploymentDetailViewModel: ObservableObject {
 }
 
 private struct EmptyBody: Encodable {}
+
+private struct DriftJobsResponse: Decodable {
+    let items: [DriftJobItem]
+}
+
+private struct DriftJobItem: Decodable {
+    let id: String?
+}

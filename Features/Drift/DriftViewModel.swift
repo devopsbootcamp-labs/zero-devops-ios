@@ -112,9 +112,7 @@ final class DriftViewModel: ObservableObject {
                     body: DriftJobRequest(deploymentId: deploymentId, cloudAccountId: candidate, accountId: candidate)
                 )
                 triggerResult = "Drift check queued for \(nameMap[deploymentId] ?? deploymentId)."
-                if let jobId = response.jobId?.trimmingCharacters(in: .whitespacesAndNewlines), !jobId.isEmpty {
-                    await streamJobLogs(jobId: jobId, deploymentId: deploymentId)
-                }
+                await streamJobLogs(initialJobId: response.jobId, deploymentId: deploymentId)
                 return
             } catch {
                 lastError = error
@@ -176,24 +174,40 @@ final class DriftViewModel: ObservableObject {
         value?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty()
     }
 
-    private func streamJobLogs(jobId: String, deploymentId: String) async {
+    private func streamJobLogs(initialJobId: String?, deploymentId: String) async {
         liveLogs = []
         logAfterSeq = 0
         isLogStreaming = true
         defer { isLogStreaming = false }
 
+        var activeJobId = initialJobId?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty()
+
         for _ in 0..<60 {
             try? await Task.sleep(nanoseconds: 2_000_000_000)
 
-            if let chunk = try? await fetchDriftJobLogChunk(jobId: jobId, afterSeq: logAfterSeq) {
+            if activeJobId == nil {
+                activeJobId = await resolveLatestJobId(deploymentId: deploymentId)
+            }
+
+            var appendedDriftLogs = false
+            if let jobId = activeJobId,
+               let chunk = try? await fetchDriftJobLogChunk(jobId: jobId, afterSeq: logAfterSeq) {
                 if !chunk.logs.isEmpty {
                     liveLogs.append(contentsOf: chunk.logs)
+                    appendedDriftLogs = true
                     if let next = chunk.nextAfterSeq {
                         logAfterSeq = max(logAfterSeq, next)
                     } else {
                         logAfterSeq += chunk.logs.count
                     }
                 }
+            }
+
+            // Fallback for environments where DRIFT_SERVICE_ENABLED is false and
+            // /api/v1/drift/jobs/{id}/logs returns 400.
+            if !appendedDriftLogs,
+               let deploymentLogs: [DeploymentLog] = try? await api.get("api/v1/deployments/\(deploymentId)/logs") {
+                liveLogs = deploymentLogs
             }
 
             // Keep main drift rows fresh while logs stream.
@@ -204,11 +218,26 @@ final class DriftViewModel: ObservableObject {
             // Stop early when job is no longer active.
             if let jobs: DriftJobsResponse = try? await api.get("api/v1/drift/jobs?deployment_id=\(deploymentId)&limit=1"),
                let latest = jobs.items.first,
+               activeJobId == nil,
+               let id = latest.id?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !id.isEmpty {
+                activeJobId = id
+            }
+
+            if let jobs: DriftJobsResponse = try? await api.get("api/v1/drift/jobs?deployment_id=\(deploymentId)&limit=1"),
+               let latest = jobs.items.first,
                let status = latest.status?.lowercased(),
                !(status == "queued" || status == "running" || status == "pending") {
                 break
             }
         }
+    }
+
+    private func resolveLatestJobId(deploymentId: String) async -> String? {
+        guard let jobs: DriftJobsResponse = try? await api.get("api/v1/drift/jobs?deployment_id=\(deploymentId)&limit=1") else {
+            return nil
+        }
+        return jobs.items.first?.id?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty()
     }
 
     private func fetchDriftJobLogChunk(jobId: String, afterSeq: Int) async throws -> (logs: [DeploymentLog], nextAfterSeq: Int?) {
@@ -240,5 +269,6 @@ private struct DriftJobsResponse: Decodable {
 }
 
 private struct DriftJob: Decodable {
+    let id: String?
     let status: String?
 }
