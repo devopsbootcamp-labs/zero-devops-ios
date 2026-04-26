@@ -121,17 +121,21 @@ final class DeploymentDetailViewModel: ObservableObject {
             if activeJobId == nil {
                 activeJobId = await resolveLatestDriftJobId(deploymentId: deploymentId)
             }
+            var appendedDriftLogs = false
             if let normalizedJobId = activeJobId,
                let chunk = try? await fetchDriftJobLogChunk(jobId: normalizedJobId, afterSeq: driftAfterSeq) {
                 if !chunk.logs.isEmpty {
                     logs.append(contentsOf: chunk.logs)
+                    appendedDriftLogs = true
                     if let next = chunk.nextAfterSeq {
                         driftAfterSeq = max(driftAfterSeq, next)
                     } else {
                         driftAfterSeq += chunk.logs.count
                     }
                 }
-            } else if let newLogs: [DeploymentLog] = try? await api.get("api/v1/deployments/\(deploymentId)/logs") {
+            }
+            if !appendedDriftLogs,
+               let newLogs: [DeploymentLog] = try? await api.get("api/v1/deployments/\(deploymentId)/logs") {
                 // Fallback for environments without drift job log streaming endpoint.
                 logs = newLogs
             }
@@ -142,17 +146,31 @@ final class DeploymentDetailViewModel: ObservableObject {
     }
 
     private func resolveLatestDriftJobId(deploymentId: String) async -> String? {
-        guard let jobs: DriftJobsResponse = try? await api.get("api/v1/drift/jobs?deployment_id=\(deploymentId)&limit=1") else {
-            return nil
+        let activeStatuses = ["running", "pending", "queued"]
+        for status in activeStatuses {
+            if let jobs: DriftJobsResponse = try? await api.get("api/v1/drift/jobs?deployment_id=\(deploymentId)&status=\(status)&limit=1"),
+               let id = jobs.items.first?.id?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty() {
+                return id
+            }
         }
-        return jobs.items.first?.id?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty()
+        if let jobs: DriftJobsResponse = try? await api.get("api/v1/drift/jobs?deployment_id=\(deploymentId)&limit=1") {
+            return jobs.items.first?.id?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty()
+        }
+        return nil
     }
 
     private func fetchLatestDriftJob(deploymentId: String) async -> DriftJobItem? {
-        guard let jobs: DriftJobsResponse = try? await api.get("api/v1/drift/jobs?deployment_id=\(deploymentId)&limit=1") else {
-            return nil
+        let activeStatuses = ["running", "pending", "queued"]
+        for status in activeStatuses {
+            if let jobs: DriftJobsResponse = try? await api.get("api/v1/drift/jobs?deployment_id=\(deploymentId)&status=\(status)&limit=1"),
+               let active = jobs.items.first {
+                return active
+            }
         }
-        return jobs.items.first
+        if let jobs: DriftJobsResponse = try? await api.get("api/v1/drift/jobs?deployment_id=\(deploymentId)&limit=1") {
+            return jobs.items.first
+        }
+        return nil
     }
 
     private func fetchDriftJobLogChunk(jobId: String, afterSeq: Int) async throws -> (logs: [DeploymentLog], nextAfterSeq: Int?) {

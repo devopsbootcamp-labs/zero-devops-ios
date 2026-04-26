@@ -132,11 +132,36 @@ private final class ChatViewModel: ObservableObject {
     private func requestReply(_ body: ChatRequest) async -> (reply: String?, error: String?) {
         var lastError: Error?
 
+        // Gateway canonical flow: /api/v1/chat/rooms/{id}/messages.
+        if let roomId = await resolveRoomId() {
+            let roomMessagePaths = [
+                "api/v1/chat/rooms/\(roomId)/messages",
+                "chatservice/api/v1/rooms/\(roomId)/messages",
+                "/chatservice/api/v1/rooms/\(roomId)/messages",
+            ]
+            do {
+                // Message stored in chat room. Return (nil, nil) so send() leaves the
+                // user bubble visible without adding a confusing assistant echo.
+                for path in roomMessagePaths {
+                    if let sent: ChatRoomMessageResponse = try? await api.post(
+                        path,
+                        body: ChatRoomMessageRequest(message: body.message)
+                    ) {
+                        if !sent.resolvedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            return (sent.resolvedText, nil)
+                        }
+                        return (nil, nil)
+                    }
+                }
+            } catch {
+                lastError = error
+            }
+        }
+
+        // Legacy assistant aliases retained as final fallbacks.
         do {
             let r: ChatResponse = try await api.post("api/v1/chat", body: body)
             if !r.resolvedText.isEmpty { return (r.resolvedText, nil) }
-            let r2: ChatRoomMessageResponse = try await api.post("api/v1/chat", body: body)
-            if !r2.resolvedText.isEmpty { return (r2.resolvedText, nil) }
         } catch {
             lastError = error
         }
@@ -144,8 +169,6 @@ private final class ChatViewModel: ObservableObject {
         do {
             let r: ChatResponse = try await api.post("api/v1/ai/chat", body: body)
             if !r.resolvedText.isEmpty { return (r.resolvedText, nil) }
-            let r2: ChatRoomMessageResponse = try await api.post("api/v1/ai/chat", body: body)
-            if !r2.resolvedText.isEmpty { return (r2.resolvedText, nil) }
         } catch {
             lastError = error
         }
@@ -153,42 +176,37 @@ private final class ChatViewModel: ObservableObject {
         do {
             let r: ChatResponse = try await api.post("api/v1/assistant/chat", body: body)
             if !r.resolvedText.isEmpty { return (r.resolvedText, nil) }
-            let r2: ChatRoomMessageResponse = try await api.post("api/v1/assistant/chat", body: body)
-            if !r2.resolvedText.isEmpty { return (r2.resolvedText, nil) }
         } catch {
             lastError = error
-        }
-
-        // Gateway canonical flow: /api/v1/chat/rooms/{id}/messages
-        if let roomId = await resolveRoomId() {
-            do {
-                // Message stored in chat room. Return (nil, nil) so send() leaves the
-                // user bubble visible without adding a confusing assistant echo.
-                let _: ChatRoomMessageResponse = try await api.post(
-                    "api/v1/chat/rooms/\(roomId)/messages",
-                    body: ChatRoomMessageRequest(message: body.message)
-                )
-                return (nil, nil)
-            } catch {
-                lastError = error
-            }
         }
 
         return (nil, lastError?.localizedDescription)
     }
 
     private func resolveRoomId() async -> String? {
-        if let rooms: [ChatRoom] = try? await api.get("api/v1/chat/rooms"), let id = rooms.first?.id {
-            return id
-        }
-        if let wrapped: ChatRoomsResponse = try? await api.get("api/v1/chat/rooms"), let id = wrapped.resolved.first?.id {
-            return id
-        }
-        if let created: ChatRoom = try? await api.post(
+        let roomListPaths = [
             "api/v1/chat/rooms",
-            body: ChatRoomCreateRequest(name: "iOS Support")
-        ) {
-            return created.id
+            "chatservice/api/v1/rooms",
+            "/chatservice/api/v1/rooms",
+        ]
+        for path in roomListPaths {
+            if let rooms: [ChatRoom] = try? await api.get(path), let id = rooms.first?.id {
+                return id
+            }
+            if let wrapped: ChatRoomsResponse = try? await api.get(path), let id = wrapped.resolved.first?.id {
+                return id
+            }
+        }
+
+        let roomCreatePaths = [
+            "api/v1/chat/rooms",
+            "chatservice/api/v1/rooms",
+            "/chatservice/api/v1/rooms",
+        ]
+        for path in roomCreatePaths {
+            if let created: ChatRoom = try? await api.post(path, body: ChatRoomCreateRequest(name: "iOS Support")) {
+                return created.id
+            }
         }
         return nil
     }

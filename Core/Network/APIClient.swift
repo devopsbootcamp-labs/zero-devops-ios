@@ -387,6 +387,22 @@ final class APIClient {
                 }
             }
 
+            // Final account-scope fallback: derive candidate deployment IDs from drift list,
+            // then fetch canonical deployment details and filter by account IDs.
+            let driftFallback = await fetchDeploymentsViaDriftDetails(limit: limit)
+            if !driftFallback.isEmpty {
+                let lower = Set(candidateIds.map { $0.lowercased() })
+                let filtered = driftFallback.filter { dep in
+                    let ids = [dep.resolvedAccountId, dep.cloudAccountId, dep.accountId,
+                               dep.params?["cloud_account_id"], dep.params?["account_id"]]
+                        .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty() }
+                    return ids.contains { lower.contains($0.lowercased()) }
+                }
+                if !filtered.isEmpty {
+                    return deduplicateAndSortDeployments(filtered)
+                }
+            }
+
             if sawScopedResponse {
                 return []
             }
@@ -450,11 +466,47 @@ final class APIClient {
             }
         }
 
+        // Final tenant fallback: drift list -> canonical deployment details.
+        let driftFallback = await fetchDeploymentsViaDriftDetails(limit: limit)
+        if !driftFallback.isEmpty {
+            return deduplicateAndSortDeployments(driftFallback)
+        }
+
         if sawAnyTenantResponse {
             return []
         }
 
         throw lastError ?? APIError.invalidResponse
+    }
+
+    private func fetchDeploymentsViaDriftDetails(limit: Int) async -> [Deployment] {
+        let driftPaths = [
+            "api/v1/drift/deployments?limit=\(limit)",
+            "api/v1/drift/deployments",
+        ]
+
+        var driftItems: [DriftDeployment] = []
+        for path in driftPaths {
+            if let list: [DriftDeployment] = try? await get(path), !list.isEmpty {
+                driftItems = list
+                break
+            }
+            if let wrapped: DriftDeploymentsResponse = try? await get(path), !wrapped.resolved.isEmpty {
+                driftItems = wrapped.resolved
+                break
+            }
+        }
+
+        guard !driftItems.isEmpty else { return [] }
+
+        var deployments: [Deployment] = []
+        for item in driftItems.prefix(limit) {
+            guard let encoded = Self.percentEncode(item.deploymentId) else { continue }
+            if let dep: Deployment = try? await get("api/v1/deployments/\(encoded)") {
+                deployments.append(dep)
+            }
+        }
+        return deployments
     }
 
     private func resolveAccountScopeCandidates(_ scoped: String) async -> [String] {
@@ -933,6 +985,7 @@ final class APIClient {
         if normalized.hasPrefix("/api/v1/tenants") { return false }
         if normalized.hasPrefix("/api/v1/analytics") { return false }
         if normalized.hasPrefix("/api/v1/chat") { return false }
+        if normalized.hasPrefix("/chatservice") { return false }
         if normalized.hasPrefix("/api/v1/dashboard") { return false }
         if normalized.hasPrefix("/api/v1/cost") { return false }
         if normalized.hasPrefix("/api/v1/resources") { return false }
