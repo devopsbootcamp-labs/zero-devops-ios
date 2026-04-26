@@ -27,6 +27,15 @@ final class DeploymentDetailViewModel: ObservableObject {
         self.plan    = try? await plan
         self.logs    = (try? await logs) ?? []
         isLoading    = false
+
+        // If a drift check is already in-flight, stream its execution logs when the
+        // user opens this deployment (matches click-through behavior from Drift list).
+        if let active = await fetchLatestDriftJob(deploymentId: deploymentId),
+           let status = active.status?.lowercased(),
+           status == "queued" || status == "running" || status == "pending" {
+            actionResult = "Streaming drift logs for active check..."
+            await streamDriftLogs(deploymentId: deploymentId, jobId: active.id)
+        }
     }
 
     func runPlan(deploymentId: String) async {
@@ -139,6 +148,13 @@ final class DeploymentDetailViewModel: ObservableObject {
         return jobs.items.first?.id?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty()
     }
 
+    private func fetchLatestDriftJob(deploymentId: String) async -> DriftJobItem? {
+        guard let jobs: DriftJobsResponse = try? await api.get("api/v1/drift/jobs?deployment_id=\(deploymentId)&limit=1") else {
+            return nil
+        }
+        return jobs.items.first
+    }
+
     private func fetchDriftJobLogChunk(jobId: String, afterSeq: Int) async throws -> (logs: [DeploymentLog], nextAfterSeq: Int?) {
         let path = "api/v1/drift/jobs/\(jobId)/logs?after_seq=\(afterSeq)&limit=200"
         let raw = try await api.getJSON(path)
@@ -216,4 +232,5 @@ private struct DriftJobsResponse: Decodable {
 
 private struct DriftJobItem: Decodable {
     let id: String?
+    let status: String?
 }

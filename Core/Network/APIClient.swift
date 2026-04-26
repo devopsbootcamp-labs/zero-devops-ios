@@ -373,6 +373,20 @@ final class APIClient {
                 }
             }
 
+            // Final account-scope fallback: analytics deployments filtered by account.
+            for candidateId in candidateIds {
+                guard let encodedId = Self.percentEncode(candidateId) else { continue }
+                let analyticsPaths = [
+                    "api/v1/analytics/deployments?limit=\(limit)&range=365&cloud_account_id=\(encodedId)",
+                    "api/v1/analytics/deployments?cloud_account_id=\(encodedId)&limit=\(limit)&range=365",
+                ]
+                for path in analyticsPaths {
+                    if let list = try? await fetchDeploymentList(path: path), !list.isEmpty {
+                        return deduplicateAndSortDeployments(list)
+                    }
+                }
+            }
+
             if sawScopedResponse {
                 return []
             }
@@ -422,6 +436,17 @@ final class APIClient {
             }
             if !merged.isEmpty {
                 return deduplicateAndSortDeployments(merged)
+            }
+        }
+
+        // Final tenant-scope fallback: analytics deployments list.
+        let analyticsTenantPaths = [
+            "api/v1/analytics/deployments?limit=\(limit)&range=365",
+            "api/v1/analytics/deployments?range=365&limit=\(limit)",
+        ]
+        for path in analyticsTenantPaths {
+            if let list = try? await fetchDeploymentList(path: path), !list.isEmpty {
+                return deduplicateAndSortDeployments(list)
             }
         }
 

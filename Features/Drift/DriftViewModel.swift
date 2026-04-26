@@ -9,13 +9,10 @@ final class DriftViewModel: ObservableObject {
     @Published var isLoading      = false
     @Published var error:         String?
     @Published var triggerResult: String?
-    @Published var liveLogs:      [DeploymentLog] = []
-    @Published var isLogStreaming = false
 
     /// Maps deploymentId → cloudAccountId so drift jobs carry the right credential scope.
     private var accountMap: [String: String] = [:]
     private let api = APIClient.shared
-    private var logAfterSeq = 0
 
     private func isIgnorableDriftError(_ error: Error) -> Bool {
         let text = error.localizedDescription.lowercased()
@@ -111,8 +108,11 @@ final class DriftViewModel: ObservableObject {
                     "api/v1/drift/jobs",
                     body: DriftJobRequest(deploymentId: deploymentId, cloudAccountId: candidate, accountId: candidate)
                 )
-                triggerResult = "Drift check queued for \(nameMap[deploymentId] ?? deploymentId)."
-                await streamJobLogs(initialJobId: response.jobId, deploymentId: deploymentId)
+                let shortJob = response.jobId?.prefix(8) ?? ""
+                triggerResult = shortJob.isEmpty
+                    ? "Drift check queued for \(nameMap[deploymentId] ?? deploymentId). Open the deployment to view execution logs."
+                    : "Drift check queued (job \(shortJob)…). Open the deployment to view execution logs."
+                await load(accountId: scopeAccountId)
                 return
             } catch {
                 lastError = error
@@ -173,102 +173,4 @@ final class DriftViewModel: ObservableObject {
     private func normalizeIdentifier(_ value: String?) -> String? {
         value?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty()
     }
-
-    private func streamJobLogs(initialJobId: String?, deploymentId: String) async {
-        liveLogs = []
-        logAfterSeq = 0
-        isLogStreaming = true
-        defer { isLogStreaming = false }
-
-        var activeJobId = initialJobId?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty()
-
-        for _ in 0..<60 {
-            try? await Task.sleep(nanoseconds: 2_000_000_000)
-
-            if activeJobId == nil {
-                activeJobId = await resolveLatestJobId(deploymentId: deploymentId)
-            }
-
-            var appendedDriftLogs = false
-            if let jobId = activeJobId,
-               let chunk = try? await fetchDriftJobLogChunk(jobId: jobId, afterSeq: logAfterSeq) {
-                if !chunk.logs.isEmpty {
-                    liveLogs.append(contentsOf: chunk.logs)
-                    appendedDriftLogs = true
-                    if let next = chunk.nextAfterSeq {
-                        logAfterSeq = max(logAfterSeq, next)
-                    } else {
-                        logAfterSeq += chunk.logs.count
-                    }
-                }
-            }
-
-            // Fallback for environments where DRIFT_SERVICE_ENABLED is false and
-            // /api/v1/drift/jobs/{id}/logs returns 400.
-            if !appendedDriftLogs,
-               let deploymentLogs: [DeploymentLog] = try? await api.get("api/v1/deployments/\(deploymentId)/logs") {
-                liveLogs = deploymentLogs
-            }
-
-            // Keep main drift rows fresh while logs stream.
-            if let driftRows = try? await fetchDriftDeployments(accountId: nil), !driftRows.isEmpty {
-                items = driftRows
-            }
-
-            // Stop early when job is no longer active.
-            if let jobs: DriftJobsResponse = try? await api.get("api/v1/drift/jobs?deployment_id=\(deploymentId)&limit=1"),
-               let latest = jobs.items.first,
-               activeJobId == nil,
-               let id = latest.id?.trimmingCharacters(in: .whitespacesAndNewlines),
-               !id.isEmpty {
-                activeJobId = id
-            }
-
-            if let jobs: DriftJobsResponse = try? await api.get("api/v1/drift/jobs?deployment_id=\(deploymentId)&limit=1"),
-               let latest = jobs.items.first,
-               let status = latest.status?.lowercased(),
-               !(status == "queued" || status == "running" || status == "pending") {
-                break
-            }
-        }
-    }
-
-    private func resolveLatestJobId(deploymentId: String) async -> String? {
-        guard let jobs: DriftJobsResponse = try? await api.get("api/v1/drift/jobs?deployment_id=\(deploymentId)&limit=1") else {
-            return nil
-        }
-        return jobs.items.first?.id?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty()
-    }
-
-    private func fetchDriftJobLogChunk(jobId: String, afterSeq: Int) async throws -> (logs: [DeploymentLog], nextAfterSeq: Int?) {
-        let raw = try await api.getJSON("api/v1/drift/jobs/\(jobId)/logs?after_seq=\(afterSeq)&limit=200")
-        guard let root = raw as? [String: Any] else { return ([], nil) }
-        let next = root["next_after_seq"] as? Int
-        let rows = (root["logs"] as? [[String: Any]]) ?? []
-        let mapped = rows.compactMap { row -> DeploymentLog? in
-            guard let message = row["message"] as? String else { return nil }
-            let level = (row["level"] as? String) ?? (row["stream"] as? String)
-            let ts = Self.parseISODate(row["ts"] as? String)
-            return DeploymentLog(timestamp: ts, level: level, message: message)
-        }
-        return (mapped, next)
-    }
-
-    private static func parseISODate(_ value: String?) -> Date? {
-        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else { return nil }
-        let withFractional = ISO8601DateFormatter()
-        withFractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let date = withFractional.date(from: value) { return date }
-        let plain = ISO8601DateFormatter()
-        return plain.date(from: value)
-    }
-}
-
-private struct DriftJobsResponse: Decodable {
-    let items: [DriftJob]
-}
-
-private struct DriftJob: Decodable {
-    let id: String?
-    let status: String?
 }
