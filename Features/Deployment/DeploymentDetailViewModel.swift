@@ -22,10 +22,10 @@ final class DeploymentDetailViewModel: ObservableObject {
         error     = nil
         async let dep  = fetchDeployment(id: deploymentId)
         async let plan = fetchPlan(id: deploymentId)
-        async let logs = fetchLogs(id: deploymentId)
+        async let initialLogs = fetchLogs(id: deploymentId)
         deployment   = try? await dep
         self.plan    = try? await plan
-        self.logs    = (try? await logs) ?? []
+        self.logs    = (try? await initialLogs) ?? []
         isLoading    = false
 
         // On open, hydrate latest drift logs (including completed runs) so users can
@@ -33,7 +33,7 @@ final class DeploymentDetailViewModel: ObservableObject {
         if let latest = await fetchLatestDriftJob(deploymentId: deploymentId),
            let jobId = latest.id?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty() {
             if let chunk = try? await fetchDriftJobLogChunk(jobId: jobId, afterSeq: 0), !chunk.logs.isEmpty {
-                logs = chunk.logs
+                self.logs = chunk.logs
             }
 
             if let status = latest.status?.lowercased(),
