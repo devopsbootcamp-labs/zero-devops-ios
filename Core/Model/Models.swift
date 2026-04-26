@@ -632,6 +632,56 @@ struct ChatRoomMessageRequest: Encodable {
     let message: String
 }
 
+struct ChatServiceRoomMessageRequest: Encodable {
+    let content: String
+    let userId: String?
+    let metadata: [String: String]?
+
+    enum CodingKeys: String, CodingKey {
+        case content
+        case userId = "user_id"
+        case metadata
+    }
+}
+
+struct SupportConversationOpenRequest: Encodable {
+    let tenantId: String
+    let userId: String
+    let userName: String?
+    let accountId: String?
+
+    enum CodingKeys: String, CodingKey {
+        case tenantId = "tenant_id"
+        case userId = "user_id"
+        case userName = "user_name"
+        case accountId = "account_id"
+    }
+}
+
+struct SupportConversationSummary: Decodable {
+    let roomId: String?
+
+    enum CodingKeys: String, CodingKey {
+        case roomId = "room_id"
+    }
+}
+
+struct SupportConversationOpenResponse: Decodable {
+    let roomId: String?
+    let roomIdAlias: String?
+    let conversation: SupportConversationSummary?
+
+    enum CodingKeys: String, CodingKey {
+        case roomId = "room_id"
+        case roomIdAlias = "roomId"
+        case conversation
+    }
+
+    var resolvedRoomId: String? {
+        roomId?.nilIfEmpty() ?? roomIdAlias?.nilIfEmpty() ?? conversation?.roomId?.nilIfEmpty()
+    }
+}
+
 struct ChatRoomMessageResponse: Decodable {
     let message: String?
     let text: String?

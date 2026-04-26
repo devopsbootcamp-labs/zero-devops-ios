@@ -504,6 +504,26 @@ final class APIClient {
             guard let encoded = Self.percentEncode(item.deploymentId) else { continue }
             if let dep: Deployment = try? await get("api/v1/deployments/\(encoded)") {
                 deployments.append(dep)
+            } else {
+                deployments.append(Deployment(
+                    id: item.deploymentId,
+                    name: "Deployment #\(item.deploymentId)",
+                    displayName: "Deployment #\(item.deploymentId)",
+                    deploymentName: "Deployment #\(item.deploymentId)",
+                    environment: nil,
+                    status: item.jobStatus,
+                    driftStatus: item.drifted == true ? "drifted" : "clean",
+                    cloudProvider: nil,
+                    region: nil,
+                    blueprintId: nil,
+                    description: nil,
+                    createdAt: item.lastCheckedAt,
+                    updatedAt: item.lastCheckedAt,
+                    accountId: nil,
+                    cloudAccountId: nil,
+                    tenantId: nil,
+                    params: nil
+                ))
             }
         }
         return deployments

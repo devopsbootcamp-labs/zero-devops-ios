@@ -92,6 +92,7 @@ private final class ChatViewModel: ObservableObject {
     @Published var error: String?
 
     private let api = APIClient.shared
+    private let sessionManager = AuthSessionManager.shared
 
     private func isNotFoundError(_ message: String?) -> Bool {
         let value = (message ?? "").lowercased()
@@ -131,6 +132,39 @@ private final class ChatViewModel: ObservableObject {
 
     private func requestReply(_ body: ChatRequest) async -> (reply: String?, error: String?) {
         var lastError: Error?
+
+        // Support queue canonical flow:
+        // 1) open (or reuse) a support conversation
+        // 2) post message to the backing room so it appears in portal queue
+        if let roomId = await resolveSupportRoomId() {
+            let sendPaths = [
+                "chatservice/api/v1/rooms/\(roomId)/messages",
+                "/chatservice/api/v1/rooms/\(roomId)/messages",
+                "api/v1/chat/rooms/\(roomId)/messages",
+            ]
+            for path in sendPaths {
+                do {
+                    if let sent: ChatRoomMessageResponse = try? await api.post(
+                        path,
+                        body: ChatServiceRoomMessageRequest(content: body.message, userId: currentUserIdFromToken(), metadata: ["source": "ios", "channel": "support"])) {
+                        if !sent.resolvedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            return (sent.resolvedText, nil)
+                        }
+                        return (nil, nil)
+                    }
+                    if let sent: ChatRoomMessageResponse = try? await api.post(
+                        path,
+                        body: ChatRoomMessageRequest(message: body.message)) {
+                        if !sent.resolvedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            return (sent.resolvedText, nil)
+                        }
+                        return (nil, nil)
+                    }
+                } catch {
+                    lastError = error
+                }
+            }
+        }
 
         // Gateway canonical flow: /api/v1/chat/rooms/{id}/messages.
         if let roomId = await resolveRoomId() {
@@ -181,6 +215,59 @@ private final class ChatViewModel: ObservableObject {
         }
 
         return (nil, lastError?.localizedDescription)
+    }
+
+    private func resolveSupportRoomId() async -> String? {
+        let tenantId = sessionManager.currentTenantId()?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let userId = currentUserIdFromToken()
+        guard let tenantId, !tenantId.isEmpty, let userId, !userId.isEmpty else {
+            return nil
+        }
+
+        let body = SupportConversationOpenRequest(
+            tenantId: tenantId,
+            userId: userId,
+            userName: userId,
+            accountId: sessionManager.currentAccountId()
+        )
+
+        let openPaths = [
+            "chatservice/api/v1/support/conversations/open",
+            "/chatservice/api/v1/support/conversations/open",
+            "api/v1/support/conversations/open",
+        ]
+
+        for path in openPaths {
+            if let opened: SupportConversationOpenResponse = try? await api.post(path, body: body) {
+                if let roomId = opened.resolvedRoomId {
+                    return roomId
+                }
+            }
+        }
+        return nil
+    }
+
+    private func currentUserIdFromToken() -> String? {
+        if let access = sessionManager.currentBundle()?.accessToken,
+           let sub = decodeJwtClaim("sub", token: access), !sub.isEmpty {
+            return sub
+        }
+        return nil
+    }
+
+    private func decodeJwtClaim(_ key: String, token: String) -> String? {
+        let parts = token.split(separator: ".")
+        guard parts.count > 1 else { return nil }
+        var payload = String(parts[1])
+            .replacingOccurrences(of: "-", with: "+")
+            .replacingOccurrences(of: "_", with: "/")
+        while payload.count % 4 != 0 { payload.append("=") }
+        guard let data = Data(base64Encoded: payload),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let value = json[key] as? String else {
+            return nil
+        }
+        return value.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty()
     }
 
     private func resolveRoomId() async -> String? {

@@ -28,13 +28,19 @@ final class DeploymentDetailViewModel: ObservableObject {
         self.logs    = (try? await logs) ?? []
         isLoading    = false
 
-        // If a drift check is already in-flight, stream its execution logs when the
-        // user opens this deployment (matches click-through behavior from Drift list).
-        if let active = await fetchLatestDriftJob(deploymentId: deploymentId),
-           let status = active.status?.lowercased(),
-           status == "queued" || status == "running" || status == "pending" {
-            actionResult = "Streaming drift logs for active check..."
-            await streamDriftLogs(deploymentId: deploymentId, jobId: active.id)
+        // On open, hydrate latest drift logs (including completed runs) so users can
+        // inspect execution output immediately after clicking from Drift.
+        if let latest = await fetchLatestDriftJob(deploymentId: deploymentId),
+           let jobId = latest.id?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty() {
+            if let chunk = try? await fetchDriftJobLogChunk(jobId: jobId, afterSeq: 0), !chunk.logs.isEmpty {
+                logs = chunk.logs
+            }
+
+            if let status = latest.status?.lowercased(),
+               status == "queued" || status == "running" || status == "pending" {
+                actionResult = "Streaming drift logs for active check..."
+                await streamDriftLogs(deploymentId: deploymentId, jobId: jobId)
+            }
         }
     }
 
